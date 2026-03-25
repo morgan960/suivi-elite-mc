@@ -8,12 +8,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <!-- Firebase SDK compat -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" onload="window._fbAppLoaded=true;window._tryInitFb&&window._tryInitFb()"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js" onload="window._fbDbLoaded=true;window._tryInitFb&&window._tryInitFb()"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
-  window._tryInitFb = function() {
-    if(!window._fbAppLoaded || !window._fbDbLoaded) return;
-    const firebaseConfig = {
+  try {
+    firebase.initializeApp({
       apiKey: "AIzaSyCQbjzF6ckhoJMCs3e9KTP8z0r4YbymcdY",
       authDomain: "elite-mc-82ef3.firebaseapp.com",
       databaseURL: "https://elite-mc-82ef3-default-rtdb.europe-west1.firebasedatabase.app",
@@ -21,8 +20,7 @@
       storageBucket: "elite-mc-82ef3.firebasestorage.app",
       messagingSenderId: "362014842620",
       appId: "1:362014842620:web:6fae3ec524cca0dc990179"
-    };
-    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    });
     const _db = firebase.database();
     window._fbDb = _db;
     window._fbSet = (path, data) => _db.ref(path).set(data);
@@ -31,8 +29,11 @@
       return { exists: () => snap.exists(), val: () => snap.val() };
     };
     window._fbReady = true;
-    window.dispatchEvent(new Event("firebase-ready"));
-  };
+    console.log("✅ Firebase initialisé");
+  } catch(e) {
+    console.error("❌ Firebase erreur:", e);
+    window._fbReady = false;
+  }
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
@@ -501,12 +502,17 @@ function App() {
         setFbLoaded(true);
       } catch(e) {
         console.error("Firebase load error:", e);
-        setSyncStatus("error");
+        // Fallback : afficher les données par défaut même sans Firebase
+        setSyncStatus("idle");
         setFbLoaded(true);
       }
     }
-    if(window._fbReady) { loadFromFirebase(); }
-    else { window.addEventListener("firebase-ready", loadFromFirebase, {once:true}); }
+    // Attendre max 3s que Firebase soit prêt, sinon charger quand même
+    const tryLoad = () => {
+      if(window._fbReady) { loadFromFirebase(); }
+      else { setTimeout(()=>{ loadFromFirebase(); }, 500); }
+    };
+    tryLoad();
   },[]);
 
   // ── Auto-save to Firebase ──
