@@ -211,13 +211,17 @@ function rowsToOrders(rows,dw,defaultFournisseur) {
 
 // ── Firebase helpers ──────────────────────────────────────────────────────
 async function fbSave(path, data) {
-  if(!window._fbReady) return;
-  await window._fbSet(path, data);
+  try {
+    if(!window._fbReady || !window._fbSet) return;
+    await window._fbSet(path, data);
+  } catch(e) { console.warn("fbSave error:", e); }
 }
 async function fbGet(path) {
-  if(!window._fbReady) return null;
-  const snap = await window._fbGet(path);
-  return snap.exists() ? snap.val() : null;
+  try {
+    if(!window._fbReady || !window._fbGet) return null;
+    const snap = await window._fbGet(path);
+    return snap.exists() ? snap.val() : null;
+  } catch(e) { console.warn("fbGet error:", e); return null; }
 }
 
 // ── Cell Editors ──────────────────────────────────────────────────────────
@@ -507,10 +511,19 @@ function App() {
         setFbLoaded(true);
       }
     }
-    // Attendre max 3s que Firebase soit prêt, sinon charger quand même
+    // Attendre que Firebase soit prêt (max 3 secondes)
+    let attempts = 0;
     const tryLoad = () => {
-      if(window._fbReady) { loadFromFirebase(); }
-      else { setTimeout(()=>{ loadFromFirebase(); }, 500); }
+      attempts++;
+      if(window._fbReady) {
+        loadFromFirebase();
+      } else if(attempts < 6) {
+        setTimeout(tryLoad, 500);
+      } else {
+        // Fallback sans Firebase
+        setSyncStatus("idle");
+        setFbLoaded(true);
+      }
     };
     tryLoad();
   },[]);
