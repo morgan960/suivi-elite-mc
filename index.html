@@ -7,6 +7,33 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<!-- Firebase SDK compat -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" onload="window._fbAppLoaded=true;window._tryInitFb&&window._tryInitFb()"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js" onload="window._fbDbLoaded=true;window._tryInitFb&&window._tryInitFb()"></script>
+<script>
+  window._tryInitFb = function() {
+    if(!window._fbAppLoaded || !window._fbDbLoaded) return;
+    const firebaseConfig = {
+      apiKey: "AIzaSyCQbjzF6ckhoJMCs3e9KTP8z0r4YbymcdY",
+      authDomain: "elite-mc-82ef3.firebaseapp.com",
+      databaseURL: "https://elite-mc-82ef3-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "elite-mc-82ef3",
+      storageBucket: "elite-mc-82ef3.firebasestorage.app",
+      messagingSenderId: "362014842620",
+      appId: "1:362014842620:web:6fae3ec524cca0dc990179"
+    };
+    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const _db = firebase.database();
+    window._fbDb = _db;
+    window._fbSet = (path, data) => _db.ref(path).set(data);
+    window._fbGet = async (path) => {
+      const snap = await _db.ref(path).once("value");
+      return { exists: () => snap.exists(), val: () => snap.val() };
+    };
+    window._fbReady = true;
+    window.dispatchEvent(new Event("firebase-ready"));
+  };
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
@@ -33,7 +60,6 @@
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
   button { transition: all 0.15s ease; }
   button:active { transform: scale(0.97); }
 </style>
@@ -44,13 +70,10 @@
 <script type="text/babel">
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
 
-// ── Constants ─────────────────────────────────────────────────────────────
 const TODAY = new Date(); TODAY.setHours(0,0,0,0);
 const GESTES = ["", "Livraison + montage offerts", "Geste commercial 50€", "Geste commercial 100€", "Remise 10%", "Pas de geste co accordé"];
 const ALERTES = ["URGENT","À surveiller","Proche","OK"];
 const ETATS_CMD = ["Commandé","Expédié","Arrivé Garges","Clôturé"];
-
-// ── Destinataires fixes des alertes mail ──────────────────────────────────
 const ALERT_RECIPIENTS = ["morgan@elite-mc.com", "backoffice@elite-mc.com"];
 
 const PALETTE = [
@@ -62,16 +85,16 @@ const PALETTE = [
 function getColor(i) { return PALETTE[i % PALETTE.length]; }
 
 const BC = {
-  URGENT:         {bg:"#FCEBEB",color:"#A32D2D"},
-  "À surveiller": {bg:"#FAEEDA",color:"#854F0B"},
-  Proche:         {bg:"#E6F1FB",color:"#185FA5"},
-  OK:             {bg:"#EAF3DE",color:"#3B6D11"},
+  URGENT:{bg:"#FCEBEB",color:"#A32D2D"},
+  "À surveiller":{bg:"#FAEEDA",color:"#854F0B"},
+  Proche:{bg:"#E6F1FB",color:"#185FA5"},
+  OK:{bg:"#EAF3DE",color:"#3B6D11"},
 };
 const EC = {
-  "Commandé":      {bg:"#FAEEDA",color:"#854F0B"},
-  "Expédié":       {bg:"#E6F1FB",color:"#185FA5"},
-  "Arrivé Garges": {bg:"#E1F5EE",color:"#085041"},
-  "Clôturé":       {bg:"#f0efe9",color:"#9c9a92"},
+  "Commandé":{bg:"#FAEEDA",color:"#854F0B"},
+  "Expédié":{bg:"#E6F1FB",color:"#185FA5"},
+  "Arrivé Garges":{bg:"#E1F5EE",color:"#085041"},
+  "Clôturé":{bg:"#f0efe9",color:"#9c9a92"},
 };
 
 const DEFAULT_FOURNISSEURS = ["TRADEMAR","KINAS","PUZMAN","TRADEDESIGN","EVLINE","BETTWELT"];
@@ -106,141 +129,94 @@ function calcS(dl) {
 function resolve(o) { const s=calcS(o.dl); return {...o,diff:s.diff,alerte:o.ao||s.alerte}; }
 function fmt(d) { if(!d) return ""; const [y,m,dd]=d.split("-"); return `${dd}/${m}/${y}`; }
 function addW(d,w) { const dt=new Date(d); dt.setDate(dt.getDate()+w*7); return dt.toISOString().split("T")[0]; }
+function safeKey(id) { return (id||"").replace(/[.#$\/\[\]]/g,"_"); }
 
 function parseDate(raw) {
   if(!raw) return null; raw=raw.trim();
-  if(raw.includes(" ")) raw = raw.split(" ")[0];
+  if(raw.includes(" ")) raw=raw.split(" ")[0];
   if(/^\d{2}\/\d{2}\/\d{4}$/.test(raw)){const[d,m,y]=raw.split("/");return`${y}-${m}-${d}`;}
   if(/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   if(/^\d{2}-\d{2}-\d{4}$/.test(raw)){const[d,m,y]=raw.split("-");return`${y}-${m}-${d}`;}
   return null;
 }
-
 function normalizeHeader(h) {
-  return h.toLowerCase()
-    .replace(/[^\x00-\x7F]/g, c => {
-      const m={'é':'e','è':'e','ê':'e','ë':'e','à':'a','â':'a','ô':'o','û':'u','ù':'u','î':'i','ï':'i','ç':'c'};
-      return m[c]||c;
-    })
-    .replace(/\ufffd/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  return h.toLowerCase().replace(/[^\x00-\x7F]/g,c=>{const m={'é':'e','è':'e','ê':'e','ë':'e','à':'a','â':'a','ô':'o','û':'u','ù':'u','î':'i','ï':'i','ç':'c'};return m[c]||c;}).replace(/\ufffd/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 }
-
 function normalizeEtat(raw) {
   if(!raw) return "Commandé";
-  const l = raw.toLowerCase().replace(/[^a-zéèêàâôûùîïç ]/gi,'').trim();
-  if(l.includes("clotur")||l.includes("cloture")||l.includes("livr")) return "Clôturé";
-  if(l.includes("exped")||l.includes("expedi")) return "Expédié";
+  const l=raw.toLowerCase().replace(/[^a-zéèêàâôûùîïç ]/gi,'').trim();
+  if(l.includes("clotur")||l.includes("livr")) return "Clôturé";
+  if(l.includes("exped")) return "Expédié";
   if(l.includes("arriv")) return "Arrivé Garges";
-  if(l.includes("command")||l.includes("en cours")) return "Commandé";
   return "Commandé";
 }
-
 function isImportableStatus(raw) {
   if(!raw) return true;
-  const l = raw.toLowerCase().replace(/[^a-zéèêàâôûùîïç ]/gi,'').trim();
-  if(l.includes("command")||l.includes("en cours")||l==="") return true;
-  return false;
+  const l=raw.toLowerCase().replace(/[^a-zéèêàâôûùîïç ]/gi,'').trim();
+  return l.includes("command")||l.includes("en cours")||l==="";
 }
-
-function normalizeId(id) {
-  return (id||"").trim().replace(/^#/, '').replace(/\s+/g, '');
-}
-
+function normalizeId(id) { return (id||"").trim().replace(/^#/,'').replace(/\s+/g,''); }
 function parseCSV(text) {
-  text = text.replace(/^\uFEFF/,'');
-  return text.trim().split("\n").filter(l=>l.trim()).map(line => {
+  text=text.replace(/^\uFEFF/,'');
+  return text.trim().split("\n").filter(l=>l.trim()).map(line=>{
     const cols=[]; let cur="",inQ=false;
-    for(let i=0;i<line.length;i++){
-      const c=line[i];
-      if(c==='"') inQ=!inQ;
-      else if(c===','&&!inQ){ cols.push(cur.trim()); cur=""; }
-      else cur+=c;
-    }
-    cols.push(cur.trim());
-    return cols;
+    for(let i=0;i<line.length;i++){const c=line[i];if(c==='"')inQ=!inQ;else if(c===','&&!inQ){cols.push(cur.trim());cur="";}else cur+=c;}
+    cols.push(cur.trim()); return cols;
   });
 }
-
-function rowsToOrders(rows, dw, defaultFournisseur) {
-  if(rows.length < 2) return {orders:[],errors:["Pas assez de lignes"],duplicates:[],skippedStatus:0};
-  const hdr = rows[0].map(normalizeHeader);
-
-  const find = (keywords) => {
-    for(const kw of keywords) {
-      const idx = hdr.findIndex(h => h.includes(kw));
-      if(idx >= 0) return idx;
-    }
-    return -1;
-  };
-
-  const cId   = find(["numero de commande","commande","n ","id"]);
-  const cDc   = find(["date de la commande","date commande","date cmd"]);
-  const cCl   = find(["nom prenom","client","nom"]);
-  const cEtat = find(["etat de la commande","etat","statut"]);
-  const cArt  = find(["article commande","article"]);
-  const cAdr  = find(["adresse de livraison","adresse livraison","adresse"]);
-  const cTyp  = find(["type de livraison","type livraison"]);
-  const cDl   = find(["date limite","limite","deadline","date reception","date de reception"]);
-  const cFourn= find(["fournisseur","supplier","fourn"]);
-  const cNote = find(["note","commentaire","sav"]);
-  const cGeste= find(["geste","commercial"]);
-
-  if(cId < 0 && cCl < 0) return {orders:[],errors:["Colonnes 'Numéro de commande' ou 'Client' requises."],duplicates:[],skippedStatus:0};
-
-  const orders=[], errors=[], seen=new Map();
-  let skippedStatus=0;
-  for(let i=1; i<rows.length; i++) {
-    const r=rows[i];
-    if(!r || r.every(c=>!c)) continue;
-
-    const rawId = cId>=0 ? (r[cId]||`#auto${i}`) : `#auto${i}`;
-    const id = rawId.startsWith('#') ? rawId : '#'+rawId;
-    const client = cCl>=0 ? (r[cCl]||"") : "";
-    if(!client && !id) continue;
-
-    const rawEtat = cEtat>=0 ? (r[cEtat]||"").replace(/[^\x20-\x7E\u00C0-\u024F]/g,'').trim() : "";
-    if(!isImportableStatus(rawEtat)) { skippedStatus++; continue; }
-
-    let dc = cDc>=0 ? parseDate(r[cDc]) : null;
-    let dl = cDl>=0 ? parseDate(r[cDl]) : null;
-    if(!dc) { errors.push(`Ligne ${i+1} (${client||id}) : date invalide`); continue; }
-    if(!dl) dl = addW(dc, dw);
-
-    const etat = normalizeEtat(rawEtat);
-    const article = cArt>=0 ? (r[cArt]||"") : "";
-    const adresse = cAdr>=0 ? (r[cAdr]||"") : "";
-    const typeLiv = cTyp>=0 ? (r[cTyp]||"") : "";
-    const csvFourn = cFourn>=0 ? (r[cFourn]||"").toUpperCase().trim() : "";
-    const fournisseur = csvFourn || (defaultFournisseur || "");
-    const note = cNote>=0 ? (r[cNote]||"") : "";
-    const geste = cGeste>=0 ? (r[cGeste]||"") : "";
-
-    const nid = normalizeId(id);
-    if(seen.has(nid)) {
-      const prevIdx = seen.get(nid);
-      orders[prevIdx] = resolve({id,client,dc,dl,fournisseur,geste,note,ao:null,etat,article,adresse,typeLiv});
-    } else {
-      seen.set(nid, orders.length);
-      orders.push(resolve({id,client,dc,dl,fournisseur,geste,note,ao:null,etat,article,adresse,typeLiv}));
-    }
+function rowsToOrders(rows,dw,defaultFournisseur) {
+  if(rows.length<2) return{orders:[],errors:["Pas assez de lignes"],skippedStatus:0};
+  const hdr=rows[0].map(normalizeHeader);
+  const find=kws=>{for(const kw of kws){const i=hdr.findIndex(h=>h.includes(kw));if(i>=0)return i;}return -1;};
+  const cId=find(["numero de commande","commande","n ","id"]);
+  const cDc=find(["date de la commande","date commande","date cmd"]);
+  const cCl=find(["nom prenom","client","nom"]);
+  const cEtat=find(["etat de la commande","etat","statut"]);
+  const cArt=find(["article commande","article"]);
+  const cAdr=find(["adresse de livraison","adresse livraison","adresse"]);
+  const cTyp=find(["type de livraison","type livraison"]);
+  const cDl=find(["date limite","limite","deadline","date reception","date de reception"]);
+  const cFourn=find(["fournisseur","supplier","fourn"]);
+  const cNote=find(["note","commentaire","sav"]);
+  const cGeste=find(["geste","commercial"]);
+  if(cId<0&&cCl<0) return{orders:[],errors:["Colonnes requises manquantes"],skippedStatus:0};
+  const orders=[],errors=[],seen=new Map(); let skippedStatus=0;
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i]; if(!r||r.every(c=>!c)) continue;
+    const rawId=cId>=0?(r[cId]||`#auto${i}`):`#auto${i}`;
+    const id=rawId.startsWith('#')?rawId:'#'+rawId;
+    const client=cCl>=0?(r[cCl]||""):"";
+    if(!client&&!id) continue;
+    const rawEtat=cEtat>=0?(r[cEtat]||"").replace(/[^\x20-\x7E\u00C0-\u024F]/g,'').trim():"";
+    if(!isImportableStatus(rawEtat)){skippedStatus++;continue;}
+    let dc=cDc>=0?parseDate(r[cDc]):null;
+    let dl=cDl>=0?parseDate(r[cDl]):null;
+    if(!dc){errors.push(`Ligne ${i+1} : date invalide`);continue;}
+    if(!dl) dl=addW(dc,dw);
+    const etat=normalizeEtat(rawEtat);
+    const article=cArt>=0?(r[cArt]||""):"";
+    const adresse=cAdr>=0?(r[cAdr]||""):"";
+    const typeLiv=cTyp>=0?(r[cTyp]||""):"";
+    const csvFourn=cFourn>=0?(r[cFourn]||"").toUpperCase().trim():"";
+    const fournisseur=csvFourn||(defaultFournisseur||"");
+    const note=cNote>=0?(r[cNote]||""):"";
+    const geste=cGeste>=0?(r[cGeste]||""):"";
+    const nid=normalizeId(id);
+    if(seen.has(nid)){orders[seen.get(nid)]=resolve({id,client,dc,dl,fournisseur,geste,note,ao:null,etat,article,adresse,typeLiv});}
+    else{seen.set(nid,orders.length);orders.push(resolve({id,client,dc,dl,fournisseur,geste,note,ao:null,etat,article,adresse,typeLiv}));}
   }
-  return {orders,errors,duplicates:[],skippedStatus};
+  return{orders,errors,skippedStatus};
 }
 
-// ── Persistent Storage ────────────────────────────────────────────────────
-const STORAGE_KEY = "elite-mc-orders";
-const STORAGE_FOURNISSEURS_KEY = "elite-mc-fournisseurs";
-const STORAGE_SETTINGS_KEY = "elite-mc-settings";
-
-async function saveData(key, data, shared=true) {
-  try { if(window.storage) await window.storage.set(key, JSON.stringify(data), shared); }
-  catch(e) { console.warn("Storage save error:", e); }
+// ── Firebase helpers ──────────────────────────────────────────────────────
+async function fbSave(path, data) {
+  if(!window._fbReady) return;
+  await window._fbSet(path, data);
 }
-
-async function loadData(key, fallback, shared=true) {
-  try { if(window.storage) { const r = await window.storage.get(key, shared); return r ? JSON.parse(r.value) : fallback; } }
-  catch(e) { console.warn("Storage load error:", e); }
-  return fallback;
+async function fbGet(path) {
+  if(!window._fbReady) return null;
+  const snap = await window._fbGet(path);
+  return snap.exists() ? snap.val() : null;
 }
 
 // ── Cell Editors ──────────────────────────────────────────────────────────
@@ -250,33 +226,26 @@ function CellSelect({value,options,colorMap,onChange,renderVal}) {
   useEffect(()=>{
     if(!open) return;
     const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
-    document.addEventListener("mousedown",h);
-    return()=>document.removeEventListener("mousedown",h);
+    document.addEventListener("mousedown",h); return()=>document.removeEventListener("mousedown",h);
   },[open]);
   return (
     <div ref={ref} style={{position:"relative",display:"inline-block"}}>
-      <div onClick={()=>setOpen(o=>!o)}
-        style={{cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:4,padding:"2px 4px",borderRadius:6}}
+      <div onClick={()=>setOpen(o=>!o)} style={{cursor:"pointer",userSelect:"none",display:"inline-flex",alignItems:"center",gap:4,padding:"2px 4px",borderRadius:6}}
         onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,0.03)"}
         onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-        {renderVal(value)}
-        <span style={{fontSize:7,opacity:0.25,marginLeft:1}}>▼</span>
+        {renderVal(value)}<span style={{fontSize:7,opacity:0.25,marginLeft:1}}>▼</span>
       </div>
       {open&&(
         <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#fff",border:"1px solid rgba(0,0,0,0.1)",borderRadius:12,boxShadow:"0 10px 32px rgba(0,0,0,0.14)",minWidth:200,padding:5,animation:"slideDown 0.15s ease-out"}}>
-          {options.map(opt=>{
-            const c=colorMap?.[opt];
-            return (
-              <div key={opt||"none"} onClick={()=>{onChange(opt);setOpen(false);}}
-                style={{padding:"8px 12px",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",gap:8,background:value===opt?"#f6f5f1":"transparent"}}
-                onMouseEnter={e=>e.currentTarget.style.background="#f6f5f1"}
-                onMouseLeave={e=>e.currentTarget.style.background=value===opt?"#f6f5f1":"transparent"}>
-                {c?<span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:600}}>{opt||"—"}</span>
-                  :<span style={{fontSize:13,color:"#6b6a64"}}>{opt||"Aucun"}</span>}
-                {value===opt&&<span style={{marginLeft:"auto",color:"var(--accent)",fontSize:13,fontWeight:600}}>✓</span>}
-              </div>
-            );
-          })}
+          {options.map(opt=>{const c=colorMap?.[opt];return(
+            <div key={opt||"none"} onClick={()=>{onChange(opt);setOpen(false);}}
+              style={{padding:"8px 12px",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",gap:8,background:value===opt?"#f6f5f1":"transparent"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#f6f5f1"}
+              onMouseLeave={e=>e.currentTarget.style.background=value===opt?"#f6f5f1":"transparent"}>
+              {c?<span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:600}}>{opt||"—"}</span>:<span style={{fontSize:13,color:"#6b6a64"}}>{opt||"Aucun"}</span>}
+              {value===opt&&<span style={{marginLeft:"auto",color:"var(--accent)",fontSize:13,fontWeight:600}}>✓</span>}
+            </div>
+          );})}
         </div>
       )}
     </div>
@@ -289,15 +258,14 @@ function CellText({value,onChange,placeholder,mono}) {
   const ref=useRef();
   useEffect(()=>{if(editing&&ref.current)ref.current.focus();},[editing]);
   useEffect(()=>setVal(value),[value]);
-  if(editing) return (
+  if(editing) return(
     <input ref={ref} value={val} onChange={e=>setVal(e.target.value)}
       onBlur={()=>{onChange(val);setEditing(false);}}
       onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab"){e.preventDefault();onChange(val);setEditing(false);}if(e.key==="Escape"){setVal(value);setEditing(false);}}}
-      style={{fontFamily:mono?"'JetBrains Mono',monospace":"inherit",fontSize:mono?11:13,padding:"4px 8px",borderRadius:6,border:"2px solid var(--accent)",background:"#fff",color:"#1a1a18",outline:"none",width:mono?110:150,boxShadow:"0 0 0 3px rgba(45,42,94,0.08)"}}/>
+      style={{fontFamily:mono?"'JetBrains Mono',monospace":"inherit",fontSize:mono?11:13,padding:"4px 8px",borderRadius:6,border:"2px solid var(--accent)",background:"#fff",color:"#1a1a18",outline:"none",width:mono?110:150}}/>
   );
-  return (
-    <span onClick={()=>setEditing(true)} title="Cliquer pour modifier"
-      style={{cursor:"text",padding:"3px 5px",borderRadius:5,fontFamily:mono?"'JetBrains Mono',monospace":"inherit",fontSize:mono?11:13,display:"inline-block"}}
+  return(
+    <span onClick={()=>setEditing(true)} style={{cursor:"text",padding:"3px 5px",borderRadius:5,fontFamily:mono?"'JetBrains Mono',monospace":"inherit",fontSize:mono?11:13,display:"inline-block"}}
       onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,0.03)"}
       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
       {value||<span style={{opacity:0.25,fontStyle:"italic"}}>{placeholder||"—"}</span>}
@@ -309,15 +277,14 @@ function CellDate({value,onChange}) {
   const [editing,setEditing]=useState(false);
   const ref=useRef();
   useEffect(()=>{if(editing&&ref.current){ref.current.focus();ref.current.showPicker?.();};},[editing]);
-  if(editing) return (
+  if(editing) return(
     <input ref={ref} type="date" defaultValue={value}
       onChange={e=>{if(e.target.value){onChange(e.target.value);setEditing(false);}}}
       onBlur={()=>setEditing(false)}
-      style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",padding:"3px 6px",borderRadius:6,border:"2px solid var(--accent)",background:"#fff",color:"#1a1a18",outline:"none",boxShadow:"0 0 0 3px rgba(45,42,94,0.08)"}}/>
+      style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",padding:"3px 6px",borderRadius:6,border:"2px solid var(--accent)",background:"#fff",outline:"none"}}/>
   );
-  return (
-    <span onClick={()=>setEditing(true)} title="Modifier la date"
-      style={{cursor:"pointer",fontFamily:"'JetBrains Mono',monospace",fontSize:11,padding:"3px 5px",borderRadius:5,display:"inline-block"}}
+  return(
+    <span onClick={()=>setEditing(true)} style={{cursor:"pointer",fontFamily:"'JetBrains Mono',monospace",fontSize:11,padding:"3px 5px",borderRadius:5,display:"inline-block"}}
       onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,0.03)"}
       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
       {fmt(value)}
@@ -325,9 +292,9 @@ function CellDate({value,onChange}) {
   );
 }
 
-function Badge({type}){const c=BC[type]||{bg:"#eee",color:"#555"};return <span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",display:"inline-block",letterSpacing:"0.02em"}}>{type}</span>;}
-function FBadge({name,colorMap}){const c=colorMap[name]||{bg:"#eee",color:"#555"};return <span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",display:"inline-block"}}>{name||"—"}</span>;}
-function EBadge({etat}){const c=EC[etat]||{bg:"#eee",color:"#555"};return <span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:10.5,fontWeight:500,whiteSpace:"nowrap",display:"inline-block"}}>{etat}</span>;}
+function Badge({type}){const c=BC[type]||{bg:"#eee",color:"#555"};return<span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",display:"inline-block"}}>{type}</span>;}
+function FBadge({name,colorMap}){const c=colorMap[name]||{bg:"#eee",color:"#555"};return<span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",display:"inline-block"}}>{name||"—"}</span>;}
+function EBadge({etat}){const c=EC[etat]||{bg:"#eee",color:"#555"};return<span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:10.5,fontWeight:500,whiteSpace:"nowrap",display:"inline-block"}}>{etat}</span>;}
 
 // ── Alert Panel ───────────────────────────────────────────────────────────
 function AlertPanel({orders,onClose}) {
@@ -339,21 +306,18 @@ function AlertPanel({orders,onClose}) {
     items.length>0&&<div style={{padding:"12px 16px"}}>
       <p style={{margin:"0 0 8px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:textColor}}>{icon} {title} ({items.length})</p>
       {items.map(o=>(
-        <div key={o.id} style={{padding:"9px 12px",background:bgColor,borderRadius:8,marginBottom:5,borderLeft:`3px solid ${borderColor}`,animation:"slideDown 0.2s ease-out"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontWeight:600,fontSize:13}}>{o.client}</span>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:textColor,fontWeight:700}}>{labelFn(o)}</span>
-          </div>
+        <div key={o.id} style={{padding:"9px 12px",background:bgColor,borderRadius:8,marginBottom:5,borderLeft:`3px solid ${borderColor}`}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:600,fontSize:13}}>{o.client}</span><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:textColor,fontWeight:700}}>{labelFn(o)}</span></div>
           <div style={{fontSize:11,color:"#6b6a64",marginTop:3}}>{o.id} · Limite : {fmt(o.dl)}{o.fournisseur?` · ${o.fournisseur}`:''}</div>
         </div>
       ))}
     </div>
   );
-  return (
+  return(
     <div style={{position:"absolute",top:"calc(100% + 10px)",right:0,zIndex:400,background:"#fff",border:"1px solid rgba(0,0,0,0.08)",borderRadius:16,boxShadow:"0 16px 48px rgba(0,0,0,0.16)",width:400,maxHeight:"70vh",overflowY:"auto",animation:"slideDown 0.2s ease-out"}}>
       <div style={{padding:"16px 18px 12px",borderBottom:"1px solid rgba(0,0,0,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><p style={{margin:0,fontWeight:700,fontSize:15}}>Alertes</p><p style={{margin:"2px 0 0",fontSize:12,color:"#9c9a92"}}>{total} commande(s) à surveiller</p></div>
-        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#9c9a92",padding:4}}>✕</button>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#9c9a92"}}>✕</button>
       </div>
       <Section title="En retard" icon="⚠" items={over} borderColor="#E24B4A" bgColor="#FCEBEB" textColor="#A32D2D" labelFn={o=>`−${Math.abs(o.diff)}j`}/>
       <Section title="Aujourd'hui" icon="📅" items={today} borderColor="#BA7517" bgColor="#FAEEDA" textColor="#854F0B" labelFn={()=>"Jour J"}/>
@@ -364,95 +328,55 @@ function AlertPanel({orders,onClose}) {
 }
 
 // ── Alert Email Modal ─────────────────────────────────────────────────────
-function AlertEmailModal({orders, onClose, onSend}) {
-  const alertOrders = orders
-    .filter(o => o.etat !== "Clôturé" && o.diff <= 7)
-    .sort((a,b) => a.diff - b.diff);
-
-  const overdue   = alertOrders.filter(o => o.diff < 0);
-  const todayO    = alertOrders.filter(o => o.diff === 0);
-  const upcoming  = alertOrders.filter(o => o.diff > 0);
-
-  const dateStr = new Date().toLocaleDateString("fr-FR", {day:"numeric", month:"long", year:"numeric"});
-
-  if(alertOrders.length === 0) return (
+function AlertEmailModal({orders,onClose,onSend}) {
+  const alertOrders=orders.filter(o=>o.etat!=="Clôturé"&&o.diff<=7).sort((a,b)=>a.diff-b.diff);
+  const overdue=alertOrders.filter(o=>o.diff<0);
+  const todayO=alertOrders.filter(o=>o.diff===0);
+  const upcoming=alertOrders.filter(o=>o.diff>0);
+  const dateStr=new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"});
+  if(alertOrders.length===0) return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,animation:"fadeIn 0.15s"}} onClick={onClose}>
       <div style={{background:"#fff",borderRadius:18,padding:"2.5rem",width:460,textAlign:"center",boxShadow:"0 24px 64px rgba(0,0,0,0.18)"}} onClick={e=>e.stopPropagation()}>
         <p style={{fontSize:40,marginBottom:12}}>✓</p>
         <p style={{fontWeight:700,fontSize:16,marginBottom:6}}>Aucune alerte à envoyer</p>
-        <p style={{fontSize:13,color:"#9c9a92",marginBottom:20}}>Toutes les commandes sont dans les délais (plus de 7 jours).</p>
+        <p style={{fontSize:13,color:"#9c9a92",marginBottom:20}}>Toutes les commandes sont dans les délais.</p>
         <button onClick={onClose} style={{background:"#1a1a18",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Fermer</button>
       </div>
     </div>
   );
-
-  const Section = ({title, icon, items, borderColor, bgColor, textColor, labelFn}) => (
-    items.length > 0 && (
-      <div style={{marginBottom:16}}>
-        <p style={{margin:"0 0 8px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:textColor}}>{icon} {title} — {items.length} commande{items.length>1?"s":""}</p>
-        {items.map(o=>(
-          <div key={o.id} style={{padding:"10px 14px",background:bgColor,borderRadius:8,marginBottom:5,borderLeft:`3px solid ${borderColor}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-              <div>
-                <span style={{fontWeight:700,fontSize:13,display:"block"}}>{o.client}</span>
-                <span style={{fontSize:11,color:"#6b6a64",fontFamily:"'JetBrains Mono',monospace"}}>{o.id}</span>
-                {o.fournisseur && <span style={{fontSize:11,color:"#6b6a64",marginLeft:8}}>· {o.fournisseur}</span>}
-              </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:textColor,display:"block"}}>{labelFn(o)}</span>
-                <span style={{fontSize:11,color:"#9c9a92"}}>Limite : {fmt(o.dl)}</span>
-              </div>
-            </div>
-            {o.etat && <div style={{marginTop:5}}><EBadge etat={o.etat}/></div>}
+  const Section=({title,icon,items,borderColor,bgColor,textColor,labelFn})=>items.length>0&&(
+    <div style={{marginBottom:16}}>
+      <p style={{margin:"0 0 8px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:textColor}}>{icon} {title} — {items.length} commande{items.length>1?"s":""}</p>
+      {items.map(o=>(
+        <div key={o.id} style={{padding:"10px 14px",background:bgColor,borderRadius:8,marginBottom:5,borderLeft:`3px solid ${borderColor}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+            <div><span style={{fontWeight:700,fontSize:13,display:"block"}}>{o.client}</span><span style={{fontSize:11,color:"#6b6a64",fontFamily:"'JetBrains Mono',monospace"}}>{o.id}{o.fournisseur&&` · ${o.fournisseur}`}</span></div>
+            <div style={{textAlign:"right",flexShrink:0}}><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:textColor,display:"block"}}>{labelFn(o)}</span><span style={{fontSize:11,color:"#9c9a92"}}>Limite : {fmt(o.dl)}</span></div>
           </div>
-        ))}
-      </div>
-    )
+        </div>
+      ))}
+    </div>
   );
-
-  return (
+  return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,animation:"fadeIn 0.15s"}} onClick={onClose}>
       <div style={{background:"#fff",borderRadius:18,width:600,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.18)"}} onClick={e=>e.stopPropagation()}>
-
-        {/* Header */}
-        <div style={{padding:"18px 20px 14px",borderBottom:"1px solid rgba(0,0,0,0.06)",display:"flex",justifyContent:"space-between",alignItems:"flex-start",position:"sticky",top:0,background:"#fff",zIndex:2,borderRadius:"18px 18px 0 0"}}>
-          <div>
-            <p style={{margin:0,fontWeight:700,fontSize:16}}>✉ Alerte mail — Commandes à terme</p>
-            <p style={{margin:"3px 0 0",fontSize:12,color:"#9c9a92"}}>{alertOrders.length} commande{alertOrders.length>1?"s":""} · {dateStr}</p>
-          </div>
-          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9c9a92",padding:4}}>✕</button>
+        <div style={{padding:"18px 20px 14px",borderBottom:"1px solid rgba(0,0,0,0.06)",display:"flex",justifyContent:"space-between",alignItems:"flex-start",position:"sticky",top:0,background:"#fff",borderRadius:"18px 18px 0 0"}}>
+          <div><p style={{margin:0,fontWeight:700,fontSize:16}}>✉ Alerte mail — Commandes à terme</p><p style={{margin:"3px 0 0",fontSize:12,color:"#9c9a92"}}>{alertOrders.length} commande{alertOrders.length>1?"s":""} · {dateStr}</p></div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9c9a92"}}>✕</button>
         </div>
-
         <div style={{padding:"16px 20px"}}>
-
-          {/* Recipients */}
           <div style={{background:"#EEEDFE",borderRadius:10,padding:"12px 14px",marginBottom:16,border:"1px solid rgba(60,52,137,0.15)"}}>
             <p style={{margin:"0 0 6px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#3C3489"}}>📨 Destinataires</p>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {ALERT_RECIPIENTS.map(e=>(
-                <span key={e} style={{background:"#fff",color:"#3C3489",border:"1px solid rgba(60,52,137,0.2)",borderRadius:6,padding:"4px 10px",fontSize:12,fontWeight:500}}>
-                  {e}
-                </span>
-              ))}
+              {ALERT_RECIPIENTS.map(e=><span key={e} style={{background:"#fff",color:"#3C3489",border:"1px solid rgba(60,52,137,0.2)",borderRadius:6,padding:"4px 10px",fontSize:12,fontWeight:500}}>{e}</span>)}
             </div>
           </div>
-
-          {/* Listing */}
           <Section title="En retard" icon="⚠" items={overdue} borderColor="#E24B4A" bgColor="#FCEBEB" textColor="#A32D2D" labelFn={o=>`−${Math.abs(o.diff)}j`}/>
           <Section title="Aujourd'hui" icon="📅" items={todayO} borderColor="#BA7517" bgColor="#FAEEDA" textColor="#854F0B" labelFn={()=>"Aujourd'hui"}/>
           <Section title="Dans les 7 jours" icon="🕐" items={upcoming} borderColor="#185FA5" bgColor="#E6F1FB" textColor="#185FA5" labelFn={o=>`dans ${o.diff}j`}/>
-
-          {/* Info */}
-          <div style={{background:"#f6f5f1",borderRadius:10,padding:"12px 14px",marginTop:4,marginBottom:16,fontSize:12,color:"#6b6a64",lineHeight:1.6}}>
-            <p style={{margin:0}}><strong style={{color:"#1a1a18"}}>ℹ Note :</strong> Le bouton "Envoyer" ouvrira votre client de messagerie (Outlook, Mail…) avec un e-mail pré-rempli adressé aux deux destinataires. Vous pourrez le relire et envoyer manuellement.</p>
-          </div>
-
-          {/* Actions */}
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-            <button onClick={onClose} style={{background:"transparent",border:"1px solid rgba(0,0,0,0.12)",borderRadius:8,padding:"10px 20px",fontSize:13,cursor:"pointer",color:"#1a1a18",fontWeight:500}}>Annuler</button>
-            <button onClick={()=>onSend(alertOrders)} style={{background:"#2d2a5e",color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
-              <span style={{fontSize:15}}>✉</span> Envoyer l'alerte
-            </button>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}>
+            <button onClick={onClose} style={{background:"transparent",border:"1px solid rgba(0,0,0,0.12)",borderRadius:8,padding:"10px 20px",fontSize:13,cursor:"pointer",fontWeight:500}}>Annuler</button>
+            <button onClick={()=>onSend(alertOrders)} style={{background:"#2d2a5e",color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}><span>✉</span> Envoyer l'alerte</button>
           </div>
         </div>
       </div>
@@ -467,21 +391,21 @@ function DetailDrawer({order,onClose,onUpdate,fournisseurs,fournisseurColors}) {
   const dl=order.alerte==="URGENT"?`−${Math.abs(order.diff)}j`:order.diff===0?"Auj.":`+${order.diff}j`;
   const lb={fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#9c9a92",marginBottom:6,display:"block"};
   const is={width:"100%",padding:"9px 12px",fontSize:13,borderRadius:8,border:"1px solid rgba(0,0,0,0.12)",background:"#f6f5f1",color:"#1a1a18",outline:"none",fontFamily:"inherit"};
-  return (
+  return(
     <div style={{position:"fixed",inset:0,zIndex:50,animation:"fadeIn 0.12s"}} onClick={onClose}>
       <div style={{position:"absolute",top:0,right:0,bottom:0,width:440,maxWidth:"95vw",background:"#fff",borderLeft:"1px solid rgba(0,0,0,0.08)",padding:"1.5rem",overflowY:"auto",boxShadow:"-12px 0 40px rgba(0,0,0,0.08)",animation:"slideRight 0.2s ease-out"}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div><p style={{margin:0,fontWeight:700,fontSize:18}}>{order.client}</p><p style={{margin:"4px 0 0",fontSize:13,color:"#9c9a92",fontFamily:"'JetBrains Mono',monospace"}}>{order.id}</p></div>
           <button style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9c9a92"}} onClick={onClose}>✕</button>
         </div>
-        <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}><Badge type={order.alerte}/><EBadge etat={order.etat}/><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,fontWeight:700,color:dc,display:"flex",alignItems:"center"}}>{dl}</span></div>
+        <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}><Badge type={order.alerte}/><EBadge etat={order.etat}/><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,fontWeight:700,color:dc}}>{dl}</span></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
           <div><label style={lb}>Commande</label><p style={{fontSize:13,fontFamily:"'JetBrains Mono',monospace"}}>{fmt(order.dc)}</p></div>
           <div><label style={lb}>Limite</label><p style={{fontSize:13,fontFamily:"'JetBrains Mono',monospace"}}>{fmt(order.dl)}</p></div>
         </div>
         {order.fournisseur&&<div style={{marginBottom:16}}><label style={lb}>Fournisseur</label><FBadge name={order.fournisseur} colorMap={fournisseurColors}/></div>}
         {order.article&&<div style={{marginBottom:16}}><label style={lb}>Article</label><p style={{fontSize:13}}>{order.article}</p></div>}
-        {order.adresse&&<div style={{marginBottom:16}}><label style={lb}>Adresse de livraison</label><p style={{fontSize:13,lineHeight:1.5}}>{order.adresse}</p></div>}
+        {order.adresse&&<div style={{marginBottom:16}}><label style={lb}>Adresse</label><p style={{fontSize:13,lineHeight:1.5}}>{order.adresse}</p></div>}
         {order.typeLiv&&<div style={{marginBottom:16}}><label style={lb}>Type de livraison</label><p style={{fontSize:13}}>{order.typeLiv}</p></div>}
         <div style={{height:1,background:"rgba(0,0,0,0.06)",margin:"18px 0"}}/>
         <label style={lb}>Geste commercial</label>
@@ -501,7 +425,7 @@ function SupplierManager({fournisseurs,fournisseurColors,onAdd,onRemove,onClose,
   const ref=useRef();
   function add(){const name=n.trim().toUpperCase();if(!name||fournisseurs.includes(name))return;onAdd(name);setN("");ref.current?.focus();}
   const cnt=f=>orders.filter(o=>o.fournisseur===f).length;
-  return (
+  return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,animation:"fadeIn 0.15s"}} onClick={onClose}>
       <div style={{background:"#fff",borderRadius:18,padding:"1.5rem",width:460,maxWidth:"95vw",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.18)"}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
@@ -513,15 +437,12 @@ function SupplierManager({fournisseurs,fournisseurColors,onAdd,onRemove,onClose,
           <button onClick={add} style={{background:"#1a1a18",color:"#fff",border:"none",borderRadius:8,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer",opacity:n.trim()?1:0.4}}>+ Ajouter</button>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {fournisseurs.map(f=>{const c=fournisseurColors[f]||{bg:"#eee",color:"#555"};const count=cnt(f);
-            return (<div key={f} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,background:"#fafaf8",border:"1px solid rgba(0,0,0,0.04)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:12,fontWeight:600,minWidth:90,textAlign:"center"}}>{f}</span>
-                <span style={{fontSize:12,color:"#9c9a92"}}>{count} cmd{count>1?'s':''}</span>
-              </div>
+          {fournisseurs.map(f=>{const c=fournisseurColors[f]||{bg:"#eee",color:"#555"};const count=cnt(f);return(
+            <div key={f} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,background:"#fafaf8",border:"1px solid rgba(0,0,0,0.04)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{background:c.bg,color:c.color,borderRadius:6,padding:"3px 10px",fontSize:12,fontWeight:600,minWidth:90,textAlign:"center"}}>{f}</span><span style={{fontSize:12,color:"#9c9a92"}}>{count} cmd{count>1?'s':''}</span></div>
               <button onClick={()=>onRemove(f)} style={{background:count>0?"transparent":"#FCEBEB",border:count>0?"1px solid rgba(0,0,0,0.08)":"none",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer",color:count>0?"#9c9a92":"#A32D2D",fontWeight:500}}>{count>0?"Utilisé":"✕ Supprimer"}</button>
-            </div>);
-          })}
+            </div>
+          );})}
         </div>
       </div>
     </div>
@@ -532,7 +453,8 @@ function SupplierManager({fournisseurs,fournisseurColors,onAdd,onRemove,onClose,
 function App() {
   const [fournisseurs,setFournisseurs]=useState(DEFAULT_FOURNISSEURS);
   const [orders,setOrders]=useState(()=>INIT.map(resolve));
-  const [loaded,setLoaded]=useState(false);
+  const [fbLoaded,setFbLoaded]=useState(false);
+  const [syncStatus,setSyncStatus]=useState("loading");
   const [fA,setFA]=useState("Tous");
   const [fF,setFF]=useState("Tous");
   const [fE,setFE]=useState("Tous");
@@ -555,166 +477,124 @@ function App() {
   const [impFournisseur,setImpFournisseur]=useState("");
   const [activeTab,setActiveTab]=useState("active");
   const [banner,setBanner]=useState(null);
-  const [syncStatus,setSyncStatus]=useState("idle");
-  const [refreshing,setRefreshing]=useState(false);
   const fileInputRef=useRef();
   const alertRef=useRef();
+  const saveTimer=useRef(null);
 
-  // ── Load from persistent storage ──
+  // ── Load from Firebase on mount ──
   useEffect(()=>{
-    (async()=>{
-      const [storedOrders,storedFourns,storedSettings] = await Promise.all([
-        loadData(STORAGE_KEY, null),
-        loadData(STORAGE_FOURNISSEURS_KEY, null),
-        loadData(STORAGE_SETTINGS_KEY, null),
-      ]);
-      if(storedOrders && storedOrders.length > 0) setOrders(storedOrders.map(resolve));
-      if(storedFourns && storedFourns.length > 0) setFournisseurs(storedFourns);
-      if(storedSettings) setSettings(s=>({...s,...storedSettings}));
-      setLoaded(true);
-    })();
+    async function loadFromFirebase() {
+      try {
+        setSyncStatus("loading");
+        const [storedOrders,storedFourns,storedSettings] = await Promise.all([
+          fbGet("orders"),
+          fbGet("fournisseurs"),
+          fbGet("settings"),
+        ]);
+        if(storedOrders) {
+          const arr = Object.values(storedOrders);
+          setOrders(arr.map(resolve));
+        }
+        if(storedFourns) setFournisseurs(storedFourns);
+        if(storedSettings) setSettings(s=>({...s,...storedSettings}));
+        setSyncStatus("idle");
+        setFbLoaded(true);
+      } catch(e) {
+        console.error("Firebase load error:", e);
+        setSyncStatus("error");
+        setFbLoaded(true);
+      }
+    }
+    if(window._fbReady) { loadFromFirebase(); }
+    else { window.addEventListener("firebase-ready", loadFromFirebase, {once:true}); }
   },[]);
 
-  // ── Auto-save ──
-  useEffect(()=>{
-    if(!loaded) return;
-    const t=setTimeout(async()=>{
-      setSyncStatus("saving");
+  // ── Auto-save to Firebase ──
+  function scheduleSave(newOrders, newFourns, newSettings) {
+    if(!fbLoaded) return;
+    if(saveTimer.current) clearTimeout(saveTimer.current);
+    setSyncStatus("saving");
+    saveTimer.current = setTimeout(async()=>{
       try {
+        const ordersObj = {};
+        (newOrders||orders).forEach(o => { ordersObj[safeKey(o.id)] = o; });
         await Promise.all([
-          saveData(STORAGE_KEY, orders),
-          saveData(STORAGE_FOURNISSEURS_KEY, fournisseurs),
-          saveData(STORAGE_SETTINGS_KEY, settings),
+          fbSave("orders", ordersObj),
+          fbSave("fournisseurs", newFourns||fournisseurs),
+          fbSave("settings", newSettings||settings),
         ]);
         setSyncStatus("saved");
         setTimeout(()=>setSyncStatus("idle"),2000);
-      } catch(e) { setSyncStatus("error"); }
-    },800);
-    return()=>clearTimeout(t);
-  },[orders,fournisseurs,settings,loaded]);
+      } catch(e) {
+        console.error("Firebase save error:", e);
+        setSyncStatus("error");
+      }
+    }, 800);
+  }
 
   useEffect(()=>{
     if(!showAlerts) return;
     const h=e=>{if(alertRef.current&&!alertRef.current.contains(e.target))setShowAlerts(false);};
-    document.addEventListener("mousedown",h);
-    return()=>document.removeEventListener("mousedown",h);
+    document.addEventListener("mousedown",h); return()=>document.removeEventListener("mousedown",h);
   },[showAlerts]);
 
   const fournisseurColors=useMemo(()=>{const m={};fournisseurs.forEach((f,i)=>{m[f]=getColor(i);});return m;},[fournisseurs]);
-
   function showBanner(type,msg){setBanner({type,msg});setTimeout(()=>setBanner(null),4500);}
 
-  async function refreshData() {
-    setRefreshing(true);
-    try {
-      const [storedOrders,storedFourns,storedSettings] = await Promise.all([
-        loadData(STORAGE_KEY, null),
-        loadData(STORAGE_FOURNISSEURS_KEY, null),
-        loadData(STORAGE_SETTINGS_KEY, null),
-      ]);
-      if(storedOrders && storedOrders.length > 0) setOrders(storedOrders.map(resolve));
-      if(storedFourns && storedFourns.length > 0) setFournisseurs(storedFourns);
-      if(storedSettings) setSettings(s=>({...s,...storedSettings}));
-      showBanner("success","Données actualisées");
-    } catch(e) { showBanner("error","Erreur lors de l'actualisation"); }
-    setRefreshing(false);
-  }
-
-  // ── Build & send alert email ──────────────────────────────────────────
   function sendAlertEmail(alertOrders) {
-    const dateStr = new Date().toLocaleDateString("fr-FR", {day:"numeric", month:"long", year:"numeric"});
-    const overdue  = alertOrders.filter(o => o.diff < 0);
-    const todayO   = alertOrders.filter(o => o.diff === 0);
-    const upcoming = alertOrders.filter(o => o.diff > 0);
-
-    let body = `Bonjour,\n\nVoici le récapitulatif des commandes arrivant à terme — ${dateStr}.\n`;
-    body += `Nombre total de commandes à surveiller : ${alertOrders.length}\n`;
-    body += `═══════════════════════════════════════\n\n`;
-
-    if(overdue.length > 0) {
-      body += `⚠ EN RETARD (${overdue.length})\n`;
-      body += `─────────────────────────────\n`;
-      overdue.forEach(o => {
-        body += `• ${o.id} — ${o.client}\n`;
-        body += `  Limite dépassée depuis ${Math.abs(o.diff)} jour(s) (${fmt(o.dl)})\n`;
-        if(o.fournisseur) body += `  Fournisseur : ${o.fournisseur}\n`;
-        if(o.etat) body += `  État : ${o.etat}\n`;
-        body += `\n`;
-      });
-    }
-
-    if(todayO.length > 0) {
-      body += `📅 ÉCHÉANCE AUJOURD'HUI (${todayO.length})\n`;
-      body += `─────────────────────────────\n`;
-      todayO.forEach(o => {
-        body += `• ${o.id} — ${o.client}\n`;
-        body += `  Date limite : ${fmt(o.dl)} — AUJOURD'HUI\n`;
-        if(o.fournisseur) body += `  Fournisseur : ${o.fournisseur}\n`;
-        if(o.etat) body += `  État : ${o.etat}\n`;
-        body += `\n`;
-      });
-    }
-
-    if(upcoming.length > 0) {
-      body += `🕐 DANS LES 7 PROCHAINS JOURS (${upcoming.length})\n`;
-      body += `─────────────────────────────\n`;
-      upcoming.forEach(o => {
-        body += `• ${o.id} — ${o.client}\n`;
-        body += `  Limite : ${fmt(o.dl)} — dans ${o.diff} jour(s)\n`;
-        if(o.fournisseur) body += `  Fournisseur : ${o.fournisseur}\n`;
-        if(o.etat) body += `  État : ${o.etat}\n`;
-        body += `\n`;
-      });
-    }
-
-    body += `═══════════════════════════════════════\n`;
-    body += `Cordialement,\nElite MC — Suivi des commandes`;
-
-    const to = ALERT_RECIPIENTS.join(",");
-    const subject = encodeURIComponent(`[Elite MC] ${alertOrders.length} commande(s) à surveiller — ${dateStr}`);
-    const bodyEnc = encodeURIComponent(body);
-    window.open(`mailto:${to}?subject=${subject}&body=${bodyEnc}`, '_blank');
+    const dateStr=new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"});
+    const overdue=alertOrders.filter(o=>o.diff<0);
+    const todayO=alertOrders.filter(o=>o.diff===0);
+    const upcoming=alertOrders.filter(o=>o.diff>0);
+    let body=`Bonjour,\n\nRécapitulatif des commandes arrivant à terme — ${dateStr}.\nTotal : ${alertOrders.length} commande(s)\n${"═".repeat(45)}\n\n`;
+    if(overdue.length>0){body+=`⚠ EN RETARD (${overdue.length})\n${"─".repeat(30)}\n`;overdue.forEach(o=>{body+=`• ${o.id} — ${o.client}\n  Limite dépassée de ${Math.abs(o.diff)}j (${fmt(o.dl)})\n${o.fournisseur?`  Fournisseur : ${o.fournisseur}\n`:""}${o.etat?`  État : ${o.etat}\n`:""}\n`;});}
+    if(todayO.length>0){body+=`📅 AUJOURD'HUI (${todayO.length})\n${"─".repeat(30)}\n`;todayO.forEach(o=>{body+=`• ${o.id} — ${o.client}\n  Limite : ${fmt(o.dl)}\n${o.fournisseur?`  Fournisseur : ${o.fournisseur}\n`:""}\n`;});}
+    if(upcoming.length>0){body+=`🕐 DANS LES 7 JOURS (${upcoming.length})\n${"─".repeat(30)}\n`;upcoming.forEach(o=>{body+=`• ${o.id} — ${o.client}\n  Limite : ${fmt(o.dl)} — dans ${o.diff}j\n${o.fournisseur?`  Fournisseur : ${o.fournisseur}\n`:""}\n`;});}
+    body+=`${"═".repeat(45)}\nElite MC — Suivi des commandes`;
+    const to=ALERT_RECIPIENTS.join(",");
+    window.open(`mailto:${to}?subject=${encodeURIComponent(`[Elite MC] ${alertOrders.length} commande(s) à surveiller — ${dateStr}`)}&body=${encodeURIComponent(body)}`,'_blank');
     setShowAlertMail(false);
-    showBanner("success",`Mail préparé pour ${ALERT_RECIPIENTS.length} destinataires — ouverture du client mail…`);
+    showBanner("success",`Mail préparé pour ${ALERT_RECIPIENTS.length} destinataires`);
   }
 
-  // ── Computed ──
-  const activeOrders = orders.filter(o => o.etat !== "Clôturé");
-  const archivedOrders = orders.filter(o => o.etat === "Clôturé");
-  const displayOrders = activeTab === "active" ? activeOrders : archivedOrders;
+  const activeOrders=orders.filter(o=>o.etat!=="Clôturé");
+  const archivedOrders=orders.filter(o=>o.etat==="Clôturé");
+  const displayOrders=activeTab==="active"?activeOrders:archivedOrders;
 
   function upd(id,field,value) {
-    setOrders(prev=>prev.map(o=>{
-      if(o.id!==id) return o;
-      const u={...o,[field]:value};
-      if(field==="dc") u.dl=addW(value,settings.dw);
-      if(field==="alerte"){u.ao=value;return u;}
-      if(field==="dc"||field==="dl") u.ao=null;
-      if(field==="etat"&&value==="Clôturé"){u.ao="OK";}
-      return resolve(u);
-    }));
+    setOrders(prev=>{
+      const next=prev.map(o=>{
+        if(o.id!==id) return o;
+        const u={...o,[field]:value};
+        if(field==="dc") u.dl=addW(value,settings.dw);
+        if(field==="alerte"){u.ao=value;return u;}
+        if(field==="dc"||field==="dl") u.ao=null;
+        if(field==="etat"&&value==="Clôturé") u.ao="OK";
+        return resolve(u);
+      });
+      scheduleSave(next);
+      return next;
+    });
     if(selectedOrder?.id===id) setSelectedOrder(prev=>{const u={...prev,[field]:value};if(field==="dc")u.dl=addW(value,settings.dw);if(field==="alerte"){u.ao=value;return u;}if(field==="etat"&&value==="Clôturé"){u.ao="OK";}return resolve(u);});
-    if(field==="etat"&&value==="Clôturé") showBanner("success","Commande clôturée → déplacée dans les archives");
+    if(field==="etat"&&value==="Clôturé") showBanner("success","Commande clôturée → archivée");
   }
 
   function deleteOrder(id) {
     if(!confirm(`Supprimer la commande ${id} ?`)) return;
-    setOrders(prev=>prev.filter(o=>o.id!==id));
+    setOrders(prev=>{const next=prev.filter(o=>o.id!==id);scheduleSave(next);return next;});
     if(selectedOrder?.id===id) setSelectedOrder(null);
     showBanner("success","Commande supprimée");
   }
 
-  function addFournisseur(name){if(!name||fournisseurs.includes(name))return;setFournisseurs(p=>[...p,name]);showBanner("success",`Fournisseur "${name}" ajouté`);}
-  function removeFournisseur(name){const c=orders.filter(o=>o.fournisseur===name).length;if(c>0){showBanner("error",`${c} commande(s) liée(s) à ${name}`);return;}setFournisseurs(p=>p.filter(f=>f!==name));if(fF===name)setFF("Tous");showBanner("success",`"${name}" supprimé`);}
+  function addFournisseur(name){if(!name||fournisseurs.includes(name))return;const next=[...fournisseurs,name];setFournisseurs(next);scheduleSave(undefined,next);showBanner("success",`"${name}" ajouté`);}
+  function removeFournisseur(name){const c=orders.filter(o=>o.fournisseur===name).length;if(c>0){showBanner("error",`${c} commande(s) liée(s) à ${name}`);return;}const next=fournisseurs.filter(f=>f!==name);setFournisseurs(next);if(fF===name)setFF("Tous");scheduleSave(undefined,next);showBanner("success",`"${name}" supprimé`);}
 
   const urgent=activeOrders.filter(o=>o.alerte==="URGENT");
   const surv=activeOrders.filter(o=>o.alerte==="À surveiller");
   const proche=activeOrders.filter(o=>o.alerte==="Proche");
   const ok=activeOrders.filter(o=>o.alerte==="OK");
   const alertCount=urgent.length+surv.length+proche.length;
-
-  // Count orders due in ≤7 days for the mail button badge
-  const mailAlertCount = activeOrders.filter(o => o.diff <= 7).length;
+  const mailAlertCount=activeOrders.filter(o=>o.diff<=7).length;
 
   let shown=displayOrders;
   if(fA!=="Tous") shown=shown.filter(o=>o.alerte===fA);
@@ -727,34 +607,26 @@ function App() {
   const si=col=>sc!==col?<span style={{opacity:0.2,marginLeft:3,fontSize:10}}>↕</span>:<span style={{marginLeft:3,fontSize:10}}>{sd==="asc"?"↑":"↓"}</span>;
 
   function handleFileUpload(e) {
-    const file=e.target.files?.[0];
-    if(!file) return;
+    const file=e.target.files?.[0]; if(!file) return;
     setImpLoading(true);
     const reader=new FileReader();
     reader.onload=(evt)=>{
       try{
-        const text=evt.target.result;
-        const result=rowsToOrders(parseCSV(text),settings.dw,impFournisseur);
+        const result=rowsToOrders(parseCSV(evt.target.result),settings.dw,impFournisseur);
         const existingIds=new Set(orders.map(o=>normalizeId(o.id)));
-        const dupes=result.orders.filter(o=>existingIds.has(normalizeId(o.id)));
-        const news=result.orders.filter(o=>!existingIds.has(normalizeId(o.id)));
-        setImpResult({...result, dupes, news});
+        setImpResult({...result,dupes:result.orders.filter(o=>existingIds.has(normalizeId(o.id))),news:result.orders.filter(o=>!existingIds.has(normalizeId(o.id)))});
         setImpStep("preview");
       }catch(err){setImpResult({orders:[],errors:[err.message],dupes:[],news:[]});setImpStep("preview");}
       setImpLoading(false);
     };
-    reader.onerror=()=>{setImpResult({orders:[],errors:["Erreur lecture fichier"],dupes:[],news:[]});setImpStep("preview");setImpLoading(false);};
-    reader.readAsText(file,'UTF-8');
-    e.target.value="";
+    reader.readAsText(file,'UTF-8'); e.target.value="";
   }
 
   function doImpPaste(){
     if(!paste.trim()) return;
     const result=rowsToOrders(parseCSV(paste),settings.dw,impFournisseur);
     const existingIds=new Set(orders.map(o=>normalizeId(o.id)));
-    const dupes=result.orders.filter(o=>existingIds.has(normalizeId(o.id)));
-    const news=result.orders.filter(o=>!existingIds.has(normalizeId(o.id)));
-    setImpResult({...result,dupes,news});
+    setImpResult({...result,dupes:result.orders.filter(o=>existingIds.has(normalizeId(o.id))),news:result.orders.filter(o=>!existingIds.has(normalizeId(o.id)))});
     setImpStep("preview");
   }
 
@@ -763,47 +635,58 @@ function App() {
     const {news=[],dupes=[],orders:allImp=[]}=impResult;
     const newFourns=new Set();
     for(const o of allImp){if(o.fournisseur&&!fournisseurs.includes(o.fournisseur))newFourns.add(o.fournisseur);}
-    if(newFourns.size>0) setFournisseurs(prev=>[...prev,...newFourns]);
+    const updatedFourns=newFourns.size>0?[...fournisseurs,...newFourns]:fournisseurs;
+    if(newFourns.size>0) setFournisseurs(updatedFourns);
     setOrders(prev=>{
       const map=new Map(prev.map(o=>[normalizeId(o.id),o]));
       for(const o of news) map.set(normalizeId(o.id),o);
-      if(impDupAction==="replace") { for(const o of dupes) map.set(normalizeId(o.id),o); }
-      else if(impDupAction==="merge") { for(const o of dupes) { const ex=map.get(normalizeId(o.id)); if(ex) map.set(normalizeId(o.id),{...o,geste:ex.geste||o.geste,note:ex.note||o.note,ao:ex.ao}); } }
-      return Array.from(map.values()).map(resolve);
+      if(impDupAction==="replace"){for(const o of dupes)map.set(normalizeId(o.id),o);}
+      else if(impDupAction==="merge"){for(const o of dupes){const ex=map.get(normalizeId(o.id));if(ex)map.set(normalizeId(o.id),{...o,geste:ex.geste||o.geste,note:ex.note||o.note,ao:ex.ao});}}
+      const next=Array.from(map.values()).map(resolve);
+      scheduleSave(next,updatedFourns);
+      return next;
     });
     const dupMsg=dupes.length>0?impDupAction==="skip"?` · ${dupes.length} doublon(s) ignoré(s)`:impDupAction==="replace"?` · ${dupes.length} doublon(s) remplacé(s)`:` · ${dupes.length} doublon(s) fusionné(s)`:"";
     setShowImp(false);setImpStep("input");setImpResult(null);setPaste("");setImpFournisseur("");
-    showBanner("success",`${news.length} nouvelle(s) commande(s) importée(s)${dupMsg}${newFourns.size>0?` · ${newFourns.size} fournisseur(s) ajouté(s)`:''}`);
+    showBanner("success",`${news.length} commande(s) importée(s)${dupMsg}`);
   }
 
-  // Style helpers
   const bs={background:"transparent",border:"1px solid rgba(0,0,0,0.12)",borderRadius:8,padding:"8px 14px",fontSize:13,cursor:"pointer",color:"#1a1a18",fontWeight:500};
   const bp={background:"#1a1a18",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,cursor:"pointer"};
   const lb={fontSize:10,fontWeight:700,color:"#6b6a64",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"};
   const is={width:"100%",boxSizing:"border-box",padding:"9px 12px",fontSize:13,borderRadius:8,border:"1px solid rgba(0,0,0,0.12)",background:"#f6f5f1",color:"#1a1a18",outline:"none",fontFamily:"inherit"};
   const th={fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#9c9a92",padding:"10px 12px",textAlign:"left",borderBottom:"1px solid rgba(0,0,0,0.06)",background:"#fafaf8",whiteSpace:"nowrap",cursor:"pointer",userSelect:"none"};
 
-  return (
+  // Loading screen
+  if(syncStatus==="loading") return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#f6f5f1",gap:16}}>
+      <div style={{width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,#2d2a5e,#4a46a0)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:20}}>E</div>
+      <p style={{fontSize:15,fontWeight:600,color:"#1a1a18"}}>Chargement des données…</p>
+      <p style={{fontSize:12,color:"#9c9a92",animation:"pulse 1s infinite"}}>Connexion à Firebase en cours</p>
+    </div>
+  );
+
+  return(
     <div style={{background:"#f6f5f1",minHeight:"100vh",paddingBottom:40}}>
 
       {/* ── HEADER ── */}
       <div style={{background:"#fff",borderBottom:"1px solid rgba(0,0,0,0.06)",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:20,boxShadow:"0 1px 3px rgba(0,0,0,0.03)"}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <div style={{width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#2d2a5e,#4a46a0)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,letterSpacing:"-0.5px",flexShrink:0}}>E</div>
+          <div style={{width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#2d2a5e,#4a46a0)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0}}>E</div>
           <div>
-            <p style={{margin:0,fontWeight:700,fontSize:17,letterSpacing:"-0.4px",color:"#1a1a18"}}>Suivi des commandes</p>
-            <p style={{margin:0,fontSize:11.5,color:"#9c9a92",marginTop:1}}>
+            <p style={{margin:0,fontWeight:700,fontSize:17,letterSpacing:"-0.4px"}}>Suivi des commandes</p>
+            <p style={{margin:0,fontSize:11.5,color:"#9c9a92",marginTop:1,display:"flex",alignItems:"center",gap:6}}>
               {new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})} · {activeOrders.length} active{activeOrders.length>1?'s':''} · {archivedOrders.length} archivée{archivedOrders.length>1?'s':''}
-              {syncStatus==="saving"&&<span style={{marginLeft:8,color:"#BA7517",animation:"pulse 1s infinite"}}>⟳ Synchro…</span>}
-              {syncStatus==="saved"&&<span style={{marginLeft:8,color:"#3B6D11"}}>✓ Synchronisé</span>}
-              {syncStatus==="error"&&<span style={{marginLeft:8,color:"#A32D2D"}}>✕ Erreur sync</span>}
+              {syncStatus==="saving"&&<span style={{color:"#BA7517",animation:"pulse 1s infinite",fontSize:11}}>⟳ Sauvegarde…</span>}
+              {syncStatus==="saved"&&<span style={{color:"#3B6D11",fontSize:11}}>✓ Sauvegardé</span>}
+              {syncStatus==="error"&&<span style={{color:"#A32D2D",fontSize:11}}>✕ Erreur sync</span>}
+              <span style={{fontSize:10,color:"#9c9a92",background:"#EEEDFE",color:"#3C3489",borderRadius:4,padding:"1px 6px",fontWeight:600}}>🔥 Firebase</span>
             </p>
           </div>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <div style={{position:"relative"}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher…"
-              style={{padding:"7px 12px 7px 30px",fontSize:13,borderRadius:8,border:"1px solid rgba(0,0,0,0.1)",background:"#f6f5f1",color:"#1a1a18",outline:"none",width:170,fontFamily:"inherit"}}/>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher…" style={{padding:"7px 12px 7px 30px",fontSize:13,borderRadius:8,border:"1px solid rgba(0,0,0,0.1)",background:"#f6f5f1",color:"#1a1a18",outline:"none",width:170,fontFamily:"inherit"}}/>
             <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:13,opacity:0.3}}>⌕</span>
           </div>
           <div ref={alertRef} style={{position:"relative"}}>
@@ -814,126 +697,80 @@ function App() {
             {showAlerts&&<AlertPanel orders={activeOrders} onClose={()=>setShowAlerts(false)}/>}
           </div>
           <button style={{...bs,display:"flex",alignItems:"center",gap:5}} onClick={()=>{setShowImp(true);setImpStep("input");setImpResult(null);setImpDupAction("skip");setImpFournisseur("");}}>
-            <span style={{fontSize:13}}>↓</span> Importer
+            <span>↓</span> Importer
           </button>
-
-          {/* ── BOUTON ALERTES MAIL avec badge ── */}
-          <button
-            style={{...bs,display:"flex",alignItems:"center",gap:6,position:"relative",
-              background:mailAlertCount>0?"#2d2a5e":"transparent",
-              color:mailAlertCount>0?"#fff":"#1a1a18",
-              border:mailAlertCount>0?"none":"1px solid rgba(0,0,0,0.12)"}}
-            onClick={()=>setShowAlertMail(true)}
-            title={`${mailAlertCount} commande(s) arrivent à terme dans 7 jours`}>
-            <span style={{fontSize:13}}>✉</span>
-            Alertes mail
-            {mailAlertCount>0&&(
-              <span style={{background:"#E24B4A",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700,lineHeight:"16px"}}>
-                {mailAlertCount}
-              </span>
-            )}
+          <button style={{...bs,display:"flex",alignItems:"center",gap:6,position:"relative",background:mailAlertCount>0?"#2d2a5e":"transparent",color:mailAlertCount>0?"#fff":"#1a1a18",border:mailAlertCount>0?"none":"1px solid rgba(0,0,0,0.12)"}} onClick={()=>setShowAlertMail(true)}>
+            <span>✉</span> Alertes mail
+            {mailAlertCount>0&&<span style={{background:"#E24B4A",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700}}>{mailAlertCount}</span>}
           </button>
-
-          <button style={{...bs,display:"flex",alignItems:"center",gap:5,opacity:refreshing?0.5:1}} onClick={refreshData} disabled={refreshing} title="Actualiser les données">
-            <span style={{fontSize:13,display:"inline-block",animation:refreshing?"pulse 0.8s infinite":"none"}}>{refreshing?"⟳":"↻"}</span> Actualiser
-          </button>
-          <button style={{...bs,display:"flex",alignItems:"center",gap:5}} onClick={()=>setShowSuppliers(true)}>
-            <span style={{fontSize:12}}>⊞</span> Fournisseurs
-          </button>
+          <button style={{...bs,display:"flex",alignItems:"center",gap:5}} onClick={()=>setShowSuppliers(true)}><span>⊞</span> Fournisseurs</button>
           <button style={{...bs,padding:"7px 10px"}} onClick={()=>setShowSet(true)}>⚙</button>
         </div>
       </div>
 
-      {/* ── BANNER ── */}
       {banner&&<div style={{margin:"10px 20px 0",background:banner.type==="success"?"#EAF3DE":"#FCEBEB",border:`1px solid ${banner.type==="success"?"#639922":"#A32D2D"}`,borderRadius:10,padding:"10px 14px",fontSize:13,color:banner.type==="success"?"#3B6D11":"#A32D2D",animation:"slideDown 0.25s ease-out",display:"flex",alignItems:"center",gap:8}}>
-        <span style={{fontSize:15}}>{banner.type==="success"?"✓":"✕"}</span>{banner.msg}
+        <span>{banner.type==="success"?"✓":"✕"}</span>{banner.msg}
       </div>}
 
-      {/* ── STATS ── */}
       {activeTab==="active"&&<div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,margin:"14px 20px"}}>
         {[{l:"Urgent",v:urgent.length,c:"#E24B4A",bg:"#FCEBEB",fKey:"URGENT"},{l:"À surveiller",v:surv.length,c:"#BA7517",bg:"#FAEEDA",fKey:"À surveiller"},{l:"Proche limite",v:proche.length,c:"#185FA5",bg:"#E6F1FB",fKey:"Proche"},{l:"En cours",v:ok.length,c:"#3B6D11",bg:"#EAF3DE",fKey:"OK"}].map(s=>(
-          <div key={s.l} onClick={()=>setFA(fA===s.fKey?"Tous":s.fKey)}
-            style={{background:"#fff",borderRadius:12,border:fA===s.fKey?`2px solid ${s.c}`:"1px solid rgba(0,0,0,0.06)",padding:"14px 16px",boxShadow:"var(--shadow-sm)",cursor:"pointer",transition:"all 0.15s"}}
-            onMouseEnter={e=>e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.06)"}
-            onMouseLeave={e=>e.currentTarget.style.boxShadow="var(--shadow-sm)"}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <p style={{margin:0,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#9c9a92"}}>{s.l}</p>
-              <div style={{width:8,height:8,borderRadius:"50%",background:s.c,opacity:s.v>0?1:0.2}}/>
-            </div>
+          <div key={s.l} onClick={()=>setFA(fA===s.fKey?"Tous":s.fKey)} style={{background:"#fff",borderRadius:12,border:fA===s.fKey?`2px solid ${s.c}`:"1px solid rgba(0,0,0,0.06)",padding:"14px 16px",boxShadow:"var(--shadow-sm)",cursor:"pointer",transition:"all 0.15s"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}><p style={{margin:0,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#9c9a92"}}>{s.l}</p><div style={{width:8,height:8,borderRadius:"50%",background:s.c,opacity:s.v>0?1:0.2}}/></div>
             <p style={{margin:"6px 0 0",fontSize:28,fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</p>
           </div>
         ))}
       </div>}
 
-      {/* ── ONGLETS ── */}
       <div style={{margin:"0 20px 10px",display:"flex",gap:3,background:"#fff",borderRadius:12,padding:4,border:"1px solid rgba(0,0,0,0.06)",width:"fit-content"}}>
         <button onClick={()=>{setActiveTab("active");setFA("Tous");setFE("Tous");}} style={{background:activeTab==="active"?"#1a1a18":"transparent",color:activeTab==="active"?"#fff":"#6b6a64",border:"none",borderRadius:9,padding:"8px 18px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          📋 Commandes actives
-          <span style={{background:activeTab==="active"?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.06)",borderRadius:5,padding:"2px 7px",fontSize:11}}>{activeOrders.length}</span>
+          📋 Commandes actives <span style={{background:activeTab==="active"?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.06)",borderRadius:5,padding:"2px 7px",fontSize:11}}>{activeOrders.length}</span>
         </button>
         <button onClick={()=>{setActiveTab("archive");setFA("Tous");setFE("Tous");}} style={{background:activeTab==="archive"?"#1a1a18":"transparent",color:activeTab==="archive"?"#fff":"#6b6a64",border:"none",borderRadius:9,padding:"8px 18px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          🗄 Archivées
-          <span style={{background:activeTab==="archive"?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.06)",borderRadius:5,padding:"2px 7px",fontSize:11}}>{archivedOrders.length}</span>
+          🗄 Archivées <span style={{background:activeTab==="archive"?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.06)",borderRadius:5,padding:"2px 7px",fontSize:11}}>{archivedOrders.length}</span>
         </button>
       </div>
 
-      {/* ── FOURNISSEUR PILLS ── */}
       <div style={{margin:"0 20px 10px"}}>
         <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
-          <button onClick={()=>setFF("Tous")} style={{background:fF==="Tous"?"#1a1a18":"#fff",color:fF==="Tous"?"#fff":"#6b6a64",border:fF==="Tous"?"none":"1px solid rgba(0,0,0,0.08)",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-            Tous ({displayOrders.length})
-          </button>
+          <button onClick={()=>setFF("Tous")} style={{background:fF==="Tous"?"#1a1a18":"#fff",color:fF==="Tous"?"#fff":"#6b6a64",border:fF==="Tous"?"none":"1px solid rgba(0,0,0,0.08)",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Tous ({displayOrders.length})</button>
           {fournisseurs.map(f=>{
-            const tot=displayOrders.filter(o=>o.fournisseur===f).length;
-            if(tot===0) return null;
+            const tot=displayOrders.filter(o=>o.fournisseur===f).length; if(tot===0) return null;
             const urg=displayOrders.filter(o=>o.fournisseur===f&&o.alerte==="URGENT").length;
-            const c=fournisseurColors[f]||{bg:"#eee",color:"#555"};
-            const isActive=fF===f;
-            return (
-              <button key={f} onClick={()=>setFF(isActive?"Tous":f)}
-                style={{background:isActive?c.color:c.bg,color:isActive?"#fff":c.color,border:`1.5px solid ${isActive?c.color:"transparent"}`,borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-                {f}
-                <span style={{background:isActive?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.06)",borderRadius:4,padding:"1px 5px",fontSize:10}}>{tot}</span>
-                {urg>0&&<span style={{background:"#E24B4A",color:"#fff",borderRadius:4,padding:"1px 5px",fontSize:9,fontWeight:700}}>{urg}!</span>}
-              </button>
-            );
+            const c=fournisseurColors[f]||{bg:"#eee",color:"#555"}; const isActive=fF===f;
+            return(<button key={f} onClick={()=>setFF(isActive?"Tous":f)} style={{background:isActive?c.color:c.bg,color:isActive?"#fff":c.color,border:`1.5px solid ${isActive?c.color:"transparent"}`,borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+              {f}<span style={{background:isActive?"rgba(255,255,255,0.2)":"rgba(0,0,0,0.06)",borderRadius:4,padding:"1px 5px",fontSize:10}}>{tot}</span>
+              {urg>0&&<span style={{background:"#E24B4A",color:"#fff",borderRadius:4,padding:"1px 5px",fontSize:9,fontWeight:700}}>{urg}!</span>}
+            </button>);
           })}
         </div>
       </div>
 
-      {/* ── FILTERS ── */}
       <div style={{margin:"0 20px 8px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           {activeTab==="active"&&<div style={{display:"flex",gap:2,background:"#fff",borderRadius:10,padding:3,border:"1px solid rgba(0,0,0,0.04)"}}>
             {["Tous","URGENT","À surveiller","Proche","OK"].map(t=>{
               const counts={Tous:activeOrders.length,URGENT:urgent.length,"À surveiller":surv.length,Proche:proche.length,OK:ok.length};
               const a=fA===t;
-              return <button key={t} style={{background:a?"#f6f5f1":"transparent",border:a?"1px solid rgba(0,0,0,0.06)":"1px solid transparent",borderRadius:7,padding:"4px 9px",fontSize:11.5,cursor:"pointer",fontWeight:a?600:400,color:a?"#1a1a18":"#9c9a92"}} onClick={()=>setFA(t)}>{t} ({counts[t]})</button>;
+              return<button key={t} style={{background:a?"#f6f5f1":"transparent",border:a?"1px solid rgba(0,0,0,0.06)":"1px solid transparent",borderRadius:7,padding:"4px 9px",fontSize:11.5,cursor:"pointer",fontWeight:a?600:400,color:a?"#1a1a18":"#9c9a92"}} onClick={()=>setFA(t)}>{t} ({counts[t]})</button>;
             })}
           </div>}
           {activeTab==="active"&&<div style={{display:"flex",gap:2,background:"#fff",borderRadius:10,padding:3,border:"1px solid rgba(0,0,0,0.04)"}}>
             <span style={{fontSize:9.5,fontWeight:700,color:"#9c9a92",padding:"0 6px",textTransform:"uppercase",display:"flex",alignItems:"center"}}>État</span>
             {["Tous",...ETATS_CMD.filter(e=>e!=="Clôturé")].map(t=>{
-              const a=fE===t;
-              const count=t==="Tous"?activeOrders.length:activeOrders.filter(o=>o.etat===t).length;
-              return <button key={t} style={{background:a?"#f6f5f1":"transparent",border:a?"1px solid rgba(0,0,0,0.06)":"1px solid transparent",borderRadius:7,padding:"4px 8px",fontSize:11,cursor:"pointer",fontWeight:a?600:400,color:a?"#1a1a18":"#9c9a92"}} onClick={()=>setFE(t)}>{t} ({count})</button>;
+              const a=fE===t; const count=t==="Tous"?activeOrders.length:activeOrders.filter(o=>o.etat===t).length;
+              return<button key={t} style={{background:a?"#f6f5f1":"transparent",border:a?"1px solid rgba(0,0,0,0.06)":"1px solid transparent",borderRadius:7,padding:"4px 8px",fontSize:11,cursor:"pointer",fontWeight:a?600:400,color:a?"#1a1a18":"#9c9a92"}} onClick={()=>setFE(t)}>{t} ({count})</button>;
             })}
           </div>}
-          {activeTab==="archive"&&<p style={{fontSize:12,color:"#9c9a92",fontStyle:"italic"}}>🗄 Commandes clôturées — {archivedOrders.length} entrée{archivedOrders.length>1?'s':''}</p>}
+          {activeTab==="archive"&&<p style={{fontSize:12,color:"#9c9a92",fontStyle:"italic"}}>🗄 {archivedOrders.length} commande{archivedOrders.length>1?'s':''} clôturée{archivedOrders.length>1?'s':''}</p>}
         </div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {(fF!=="Tous"||fE!=="Tous"||fA!=="Tous")&&<button onClick={()=>{setFF("Tous");setFE("Tous");setFA("Tous");setSearch("");}} style={{fontSize:11,color:"#9c9a92",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Réinitialiser</button>}
-        </div>
+        {(fF!=="Tous"||fE!=="Tous"||fA!=="Tous")&&<button onClick={()=>{setFF("Tous");setFE("Tous");setFA("Tous");setSearch("");}} style={{fontSize:11,color:"#9c9a92",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Réinitialiser</button>}
       </div>
 
       {/* ── TABLE ── */}
       <div style={{margin:"0 20px",borderRadius:14,border:"1px solid rgba(0,0,0,0.06)",overflow:"auto",background:"#fff",boxShadow:"var(--shadow-sm)"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
           <thead>
-            <tr>
-              {[{k:"id",l:"N° Cmd"},{k:"client",l:"Client"},{k:"fournisseur",l:"Fournisseur"},{k:"etat",l:"État"},{k:"dc",l:"Commande"},{k:"dl",l:"Limite"},{k:"diff",l:"Délai"},{k:"alerte",l:"Statut"},{k:"geste",l:"Geste"},{k:"note",l:"Note"},{k:"_",l:""}]
-                .map(h=><th key={h.l||h.k} style={{...th,cursor:h.k==="_"?"default":"pointer"}} onClick={()=>h.k!=="_"&&tSort(h.k)}>{h.l}{h.k!=="_"&&si(h.k)}</th>)}
-            </tr>
+            <tr>{[{k:"id",l:"N° Cmd"},{k:"client",l:"Client"},{k:"fournisseur",l:"Fournisseur"},{k:"etat",l:"État"},{k:"dc",l:"Commande"},{k:"dl",l:"Limite"},{k:"diff",l:"Délai"},{k:"alerte",l:"Statut"},{k:"geste",l:"Geste"},{k:"note",l:"Note"},{k:"_",l:""}].map(h=><th key={h.l||h.k} style={{...th,cursor:h.k==="_"?"default":"pointer"}} onClick={()=>h.k!=="_"&&tSort(h.k)}>{h.l}{h.k!=="_"&&si(h.k)}</th>)}</tr>
           </thead>
           <tbody>
             {shown.length===0?<tr><td colSpan={11} style={{padding:"3rem",textAlign:"center",color:"#9c9a92",fontSize:13}}>Aucune commande pour ce filtre.</td></tr>
@@ -942,7 +779,7 @@ function App() {
               const td={padding:"7px 12px",fontSize:13,borderBottom:last?"none":"1px solid rgba(0,0,0,0.04)",verticalAlign:"middle"};
               const dc=o.alerte==="URGENT"?"#A32D2D":o.alerte==="À surveiller"?"#854F0B":"#185FA5";
               const dl=o.alerte==="URGENT"?`−${Math.abs(o.diff)}j`:o.diff===0?"Auj.":`+${o.diff}j`;
-              return (
+              return(
                 <tr key={o.id+i} style={{background:o.alerte==="URGENT"?"rgba(226,75,74,0.025)":"transparent"}}
                   onMouseEnter={e=>{if(o.alerte!=="URGENT")e.currentTarget.style.background="#fafaf8";}}
                   onMouseLeave={e=>{e.currentTarget.style.background=o.alerte==="URGENT"?"rgba(226,75,74,0.025)":"transparent";}}>
@@ -954,12 +791,7 @@ function App() {
                   <td style={td}><CellDate value={o.dl} onChange={v=>upd(o.id,"dl",v)}/></td>
                   <td style={{...td,fontWeight:700,color:dc,fontFamily:"'JetBrains Mono',monospace",fontSize:11.5}}>{dl}{o.ao&&<span title="Statut forcé" style={{fontSize:8,marginLeft:2,opacity:0.4}}>✎</span>}</td>
                   <td style={td}><CellSelect value={o.alerte} options={ALERTES} colorMap={BC} onChange={v=>upd(o.id,"alerte",v)} renderVal={v=><Badge type={v}/>}/></td>
-                  <td style={td}>
-                    <CellSelect value={o.geste} options={GESTES}
-                      colorMap={{"Livraison + montage offerts":{bg:"#E6F1FB",color:"#185FA5"},"Geste commercial 50€":{bg:"#EAF3DE",color:"#3B6D11"},"Geste commercial 100€":{bg:"#FAEEDA",color:"#854F0B"},"Remise 10%":{bg:"#F0E6FB",color:"#5B2D8E"},"Pas de geste co accordé":{bg:"#f0efe9",color:"#6b6a64"}}}
-                      onChange={v=>upd(o.id,"geste",v)}
-                      renderVal={v=>v?<span style={{background:v.includes("Pas de geste")?"#f0efe9":v.includes("100")?"#FAEEDA":v.includes("50")?"#EAF3DE":v.includes("Remise")?"#F0E6FB":"#E6F1FB",color:v.includes("Pas de geste")?"#6b6a64":v.includes("100")?"#854F0B":v.includes("50")?"#3B6D11":v.includes("Remise")?"#5B2D8E":"#185FA5",borderRadius:6,padding:"3px 8px",fontSize:10.5,fontWeight:500}}>{v}</span>:<span style={{color:"#9c9a92",fontSize:11}}>—</span>}/>
-                  </td>
+                  <td style={td}><CellSelect value={o.geste} options={GESTES} colorMap={{"Livraison + montage offerts":{bg:"#E6F1FB",color:"#185FA5"},"Geste commercial 50€":{bg:"#EAF3DE",color:"#3B6D11"},"Geste commercial 100€":{bg:"#FAEEDA",color:"#854F0B"},"Remise 10%":{bg:"#F0E6FB",color:"#5B2D8E"},"Pas de geste co accordé":{bg:"#f0efe9",color:"#6b6a64"}}} onChange={v=>upd(o.id,"geste",v)} renderVal={v=>v?<span style={{background:v.includes("Pas")?"#f0efe9":v.includes("100")?"#FAEEDA":v.includes("50")?"#EAF3DE":v.includes("Remise")?"#F0E6FB":"#E6F1FB",color:v.includes("Pas")?"#6b6a64":v.includes("100")?"#854F0B":v.includes("50")?"#3B6D11":v.includes("Remise")?"#5B2D8E":"#185FA5",borderRadius:6,padding:"3px 8px",fontSize:10.5,fontWeight:500}}>{v}</span>:<span style={{color:"#9c9a92",fontSize:11}}>—</span>}/></td>
                   <td style={{...td,maxWidth:130}}><CellText value={o.note||""} onChange={v=>upd(o.id,"note",v)} placeholder="Note…"/></td>
                   <td style={{...td,width:60,textAlign:"center"}}>
                     <div style={{display:"flex",gap:2,justifyContent:"center"}}>
@@ -973,56 +805,48 @@ function App() {
           </tbody>
         </table>
       </div>
-      <div style={{margin:"8px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <p style={{fontSize:11.5,color:"#9c9a92"}}>{shown.length} commande{shown.length>1?'s':''} · données partagées entre collaborateurs</p>
-      </div>
+      <div style={{margin:"8px 20px"}}><p style={{fontSize:11.5,color:"#9c9a92"}}>{shown.length} commande{shown.length>1?'s':''} · synchronisé via Firebase 🔥</p></div>
 
       {/* ── IMPORT MODAL ── */}
       {showImp&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,animation:"fadeIn 0.12s"}} onClick={()=>setShowImp(false)}>
           <div style={{background:"#fff",borderRadius:18,padding:"1.5rem",width:580,maxWidth:"95vw",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.18)"}} onClick={e=>e.stopPropagation()}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <p style={{margin:0,fontWeight:700,fontSize:16}}>{impStep==="preview"?"Aperçu de l'import":"Importer un fichier CSV"}</p>
+              <p style={{margin:0,fontWeight:700,fontSize:16}}>{impStep==="preview"?"Aperçu de l'import":"Importer CSV"}</p>
               <button style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9c9a92"}} onClick={()=>setShowImp(false)}>✕</button>
             </div>
-
             {impStep==="input"&&(
               <div>
                 <div style={{background:"#f6f5f1",borderRadius:10,padding:"12px 14px",fontSize:12,color:"#6b6a64",marginBottom:16}}>
                   <p style={{margin:"0 0 4px",fontWeight:600,color:"#1a1a18"}}>Format accepté</p>
-                  <code style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#9c9a92",lineHeight:1.5}}>
-                    Numéro de commande · Date de la commande · Vendeur · État · Nom prénom · Adresse · Type de livraison · Article…
-                  </code>
-                  <p style={{margin:"8px 0 0",fontSize:11,color:"#854F0B",fontWeight:500}}>ℹ Seules les lignes avec l'état "Commandé" ou "En cours" seront importées.</p>
+                  <code style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#9c9a92"}}>Numéro de commande · Date · Client · État · Article · Adresse…</code>
+                  <p style={{margin:"8px 0 0",fontSize:11,color:"#854F0B",fontWeight:500}}>ℹ Seules les lignes "Commandé" ou "En cours" seront importées.</p>
                 </div>
                 <div style={{marginBottom:16}}>
-                  <label style={lb}>Fournisseur par défaut (appliqué si absent du CSV)</label>
+                  <label style={lb}>Fournisseur par défaut</label>
                   <select value={impFournisseur} onChange={e=>setImpFournisseur(e.target.value)} style={{...is,cursor:"pointer"}}>
                     <option value="">— Aucun —</option>
                     {fournisseurs.map(f=><option key={f} value={f}>{f}</option>)}
                   </select>
                 </div>
                 <div style={{display:"flex",gap:2,background:"#f6f5f1",borderRadius:10,padding:3,marginBottom:16}}>
-                  {[{k:"file",l:"📁 Fichier CSV"},{k:"paste",l:"📋 Coller les données"}].map(t=>(
+                  {[{k:"file",l:"📁 Fichier CSV"},{k:"paste",l:"📋 Coller"}].map(t=>(
                     <button key={t.k} onClick={()=>setImpTab(t.k)} style={{flex:1,background:impTab===t.k?"#fff":"transparent",border:impTab===t.k?"1px solid rgba(0,0,0,0.06)":"1px solid transparent",borderRadius:8,padding:"8px",fontSize:13,fontWeight:impTab===t.k?600:400,cursor:"pointer",color:impTab===t.k?"#1a1a18":"#6b6a64"}}>{t.l}</button>
                   ))}
                 </div>
                 {impTab==="file"&&(
                   <div>
                     <input ref={fileInputRef} type="file" accept=".csv,.txt" style={{display:"none"}} onChange={handleFileUpload}/>
-                    <div onClick={()=>!impLoading&&fileInputRef.current?.click()}
-                      style={{border:"2px dashed rgba(0,0,0,0.12)",borderRadius:12,padding:"2rem",textAlign:"center",cursor:"pointer",background:"#fafaf8",transition:"all 0.15s"}}
+                    <div onClick={()=>!impLoading&&fileInputRef.current?.click()} style={{border:"2px dashed rgba(0,0,0,0.12)",borderRadius:12,padding:"2rem",textAlign:"center",cursor:"pointer",background:"#fafaf8"}}
                       onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--accent)";e.currentTarget.style.background="var(--accent-light)";}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(0,0,0,0.12)";e.currentTarget.style.background="#fafaf8";}}>
-                      {impLoading?<p style={{color:"#BA7517",animation:"pulse 1s infinite"}}>⏳ Lecture du fichier…</p>
-                      :<><p style={{fontSize:24,marginBottom:6}}>📄</p><p style={{fontSize:13,color:"#6b6a64"}}>Cliquez pour choisir un fichier <strong>.csv</strong></p><p style={{fontSize:11,color:"#9c9a92",marginTop:4}}>ou glissez-déposez ici</p></>}
+                      {impLoading?<p style={{color:"#BA7517",animation:"pulse 1s infinite"}}>⏳ Lecture…</p>:<><p style={{fontSize:24,marginBottom:6}}>📄</p><p style={{fontSize:13,color:"#6b6a64"}}>Cliquez pour choisir un fichier <strong>.csv</strong></p></>}
                     </div>
                   </div>
                 )}
                 {impTab==="paste"&&(
                   <div>
-                    <label style={lb}>Coller le contenu CSV</label>
-                    <textarea value={paste} onChange={e=>setPaste(e.target.value)} placeholder="Numéro de commande,Date de la commande,..." style={{...is,minHeight:120,resize:"vertical",fontFamily:"'JetBrains Mono',monospace",fontSize:11}}/>
+                    <textarea value={paste} onChange={e=>setPaste(e.target.value)} placeholder="Numéro de commande,Date,..." style={{...is,minHeight:120,resize:"vertical",fontFamily:"'JetBrains Mono',monospace",fontSize:11}}/>
                     <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
                       <button style={bs} onClick={()=>setShowImp(false)}>Annuler</button>
                       <button style={{...bp,opacity:!paste.trim()?0.4:1}} onClick={doImpPaste} disabled={!paste.trim()}>Aperçu →</button>
@@ -1031,79 +855,50 @@ function App() {
                 )}
               </div>
             )}
-
             {impStep==="preview"&&impResult&&(
               <div>
-                {impResult.errors?.length>0&&(
-                  <div style={{background:"#FAEEDA",border:"1px solid #BA7517",borderRadius:10,padding:"10px 14px",fontSize:12,marginBottom:14,color:"#854F0B"}}>
-                    <p style={{margin:"0 0 4px",fontWeight:700}}>⚠ {impResult.errors.length} ligne(s) ignorée(s)</p>
-                    {impResult.errors.slice(0,4).map((e,i)=><p key={i} style={{margin:"2px 0",fontSize:11}}>• {e}</p>)}
-                  </div>
-                )}
-                {impResult.skippedStatus>0&&(
-                  <div style={{background:"#f0efe9",border:"1px solid rgba(0,0,0,0.1)",borderRadius:10,padding:"10px 14px",fontSize:12,marginBottom:14,color:"#6b6a64"}}>
-                    <p style={{margin:0,fontWeight:600}}>🚫 {impResult.skippedStatus} ligne(s) ignorée(s) — état différent de "Commandé" / "En cours"</p>
-                  </div>
-                )}
+                {impResult.errors?.length>0&&<div style={{background:"#FAEEDA",border:"1px solid #BA7517",borderRadius:10,padding:"10px 14px",fontSize:12,marginBottom:14,color:"#854F0B"}}><p style={{margin:"0 0 4px",fontWeight:700}}>⚠ {impResult.errors.length} ligne(s) ignorée(s)</p>{impResult.errors.slice(0,4).map((e,i)=><p key={i} style={{margin:"2px 0",fontSize:11}}>• {e}</p>)}</div>}
+                {impResult.skippedStatus>0&&<div style={{background:"#f0efe9",borderRadius:10,padding:"10px 14px",fontSize:12,marginBottom:14,color:"#6b6a64"}}><p style={{margin:0,fontWeight:600}}>🚫 {impResult.skippedStatus} ligne(s) ignorée(s) — statut différent de "Commandé"</p></div>}
                 {impResult.dupes?.length>0&&(
                   <div style={{background:"#EEEDFE",border:"1px solid #3C3489",borderRadius:10,padding:"12px 14px",fontSize:12,marginBottom:14,color:"#3C3489"}}>
-                    <p style={{margin:"0 0 6px",fontWeight:700}}>🔄 {impResult.dupes.length} doublon(s) détecté(s)</p>
-                    <p style={{margin:"0 0 10px",fontSize:11,color:"#6b6a64"}}>Ces commandes existent déjà. Que souhaitez-vous faire ?</p>
+                    <p style={{margin:"0 0 6px",fontWeight:700}}>🔄 {impResult.dupes.length} doublon(s)</p>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {[{k:"skip",l:"Ignorer",d:"Garder les données actuelles"},{k:"replace",l:"Remplacer",d:"Écraser avec le CSV"},{k:"merge",l:"Fusionner",d:"Mettre à jour, garder notes/gestes"}].map(opt=>(
-                        <button key={opt.k} onClick={()=>setImpDupAction(opt.k)}
-                          style={{flex:1,minWidth:130,background:impDupAction===opt.k?"#3C3489":"#fff",color:impDupAction===opt.k?"#fff":"#3C3489",border:`1.5px solid ${impDupAction===opt.k?"#3C3489":"rgba(60,52,137,0.3)"}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",textAlign:"left"}}>
-                          <p style={{margin:0,fontSize:12,fontWeight:600}}>{opt.l}</p>
-                          <p style={{margin:"2px 0 0",fontSize:10,opacity:0.7}}>{opt.d}</p>
+                      {[{k:"skip",l:"Ignorer",d:"Garder les données actuelles"},{k:"replace",l:"Remplacer",d:"Écraser avec le CSV"},{k:"merge",l:"Fusionner",d:"Garder notes/gestes"}].map(opt=>(
+                        <button key={opt.k} onClick={()=>setImpDupAction(opt.k)} style={{flex:1,minWidth:130,background:impDupAction===opt.k?"#3C3489":"#fff",color:impDupAction===opt.k?"#fff":"#3C3489",border:`1.5px solid ${impDupAction===opt.k?"#3C3489":"rgba(60,52,137,0.3)"}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",textAlign:"left"}}>
+                          <p style={{margin:0,fontSize:12,fontWeight:600}}>{opt.l}</p><p style={{margin:"2px 0 0",fontSize:10,opacity:0.7}}>{opt.d}</p>
                         </button>
                       ))}
-                    </div>
-                    <div style={{marginTop:8,fontSize:11,color:"#6b6a64"}}>
-                      Doublons : {impResult.dupes.slice(0,5).map(o=>o.id).join(', ')}{impResult.dupes.length>5?` + ${impResult.dupes.length-5} autres`:''}
                     </div>
                   </div>
                 )}
                 {impResult.orders?.length>0&&(
                   <div style={{display:"flex",gap:8,marginBottom:14}}>
-                    <div style={{flex:1,background:"#EAF3DE",borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
-                      <p style={{margin:0,fontSize:20,fontWeight:700,color:"#3B6D11"}}>{impResult.news?.length||0}</p>
-                      <p style={{margin:0,fontSize:10,color:"#3B6D11",fontWeight:600}}>NOUVELLES</p>
-                    </div>
-                    <div style={{flex:1,background:"#EEEDFE",borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
-                      <p style={{margin:0,fontSize:20,fontWeight:700,color:"#3C3489"}}>{impResult.dupes?.length||0}</p>
-                      <p style={{margin:0,fontSize:10,color:"#3C3489",fontWeight:600}}>DOUBLONS</p>
-                    </div>
-                    <div style={{flex:1,background:"#f6f5f1",borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
-                      <p style={{margin:0,fontSize:20,fontWeight:700,color:"#6b6a64"}}>{impResult.orders?.length||0}</p>
-                      <p style={{margin:0,fontSize:10,color:"#6b6a64",fontWeight:600}}>TOTAL CSV</p>
-                    </div>
+                    <div style={{flex:1,background:"#EAF3DE",borderRadius:8,padding:"8px 12px",textAlign:"center"}}><p style={{margin:0,fontSize:20,fontWeight:700,color:"#3B6D11"}}>{impResult.news?.length||0}</p><p style={{margin:0,fontSize:10,color:"#3B6D11",fontWeight:600}}>NOUVELLES</p></div>
+                    <div style={{flex:1,background:"#EEEDFE",borderRadius:8,padding:"8px 12px",textAlign:"center"}}><p style={{margin:0,fontSize:20,fontWeight:700,color:"#3C3489"}}>{impResult.dupes?.length||0}</p><p style={{margin:0,fontSize:10,color:"#3C3489",fontWeight:600}}>DOUBLONS</p></div>
+                    <div style={{flex:1,background:"#f6f5f1",borderRadius:8,padding:"8px 12px",textAlign:"center"}}><p style={{margin:0,fontSize:20,fontWeight:700,color:"#6b6a64"}}>{impResult.orders?.length||0}</p><p style={{margin:0,fontSize:10,color:"#6b6a64",fontWeight:600}}>TOTAL</p></div>
                   </div>
                 )}
                 {impResult.orders?.length>0&&(
-                  <div style={{border:"1px solid rgba(0,0,0,0.06)",borderRadius:10,overflow:"hidden",maxHeight:260,overflowY:"auto",marginBottom:14}}>
+                  <div style={{border:"1px solid rgba(0,0,0,0.06)",borderRadius:10,overflow:"hidden",maxHeight:220,overflowY:"auto",marginBottom:14}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
-                      <thead><tr>{["","N° Cmd","Client","État","Article","Date","Statut"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",background:"#fafaf8",borderBottom:"1px solid rgba(0,0,0,0.06)",fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:"#9c9a92",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
-                      <tbody>{impResult.orders.map((o,i)=>{
-                        const isDupe=impResult.dupes?.some(d=>normalizeId(d.id)===normalizeId(o.id));
-                        return (
-                          <tr key={o.id+i} style={{borderBottom:i<impResult.orders.length-1?"1px solid rgba(0,0,0,0.04)":"none",background:isDupe?"rgba(60,52,137,0.03)":"transparent"}}>
-                            <td style={{padding:"6px 8px",width:24}}>{isDupe?<span style={{fontSize:10,color:"#3C3489"}}>🔄</span>:<span style={{fontSize:10,color:"#3B6D11"}}>✦</span>}</td>
-                            <td style={{padding:"6px 10px",fontFamily:"'JetBrains Mono',monospace",color:"#9c9a92",fontSize:10.5}}>{o.id}</td>
-                            <td style={{padding:"6px 10px",fontWeight:600}}>{o.client}</td>
-                            <td style={{padding:"6px 10px"}}><EBadge etat={o.etat}/></td>
-                            <td style={{padding:"6px 10px",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:10.5}} title={o.article}>{o.article||"—"}</td>
-                            <td style={{padding:"6px 10px",fontFamily:"'JetBrains Mono',monospace",fontSize:10.5}}>{fmt(o.dc)}</td>
-                            <td style={{padding:"6px 10px"}}><Badge type={o.alerte}/></td>
-                          </tr>
-                        );
-                      })}</tbody>
+                      <thead><tr>{["","N° Cmd","Client","État","Date","Statut"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",background:"#fafaf8",borderBottom:"1px solid rgba(0,0,0,0.06)",fontSize:9.5,fontWeight:700,textTransform:"uppercase",color:"#9c9a92",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
+                      <tbody>{impResult.orders.map((o,i)=>{const isDupe=impResult.dupes?.some(d=>normalizeId(d.id)===normalizeId(o.id));return(
+                        <tr key={o.id+i} style={{borderBottom:i<impResult.orders.length-1?"1px solid rgba(0,0,0,0.04)":"none",background:isDupe?"rgba(60,52,137,0.03)":"transparent"}}>
+                          <td style={{padding:"6px 8px",width:24}}>{isDupe?<span style={{fontSize:10,color:"#3C3489"}}>🔄</span>:<span style={{fontSize:10,color:"#3B6D11"}}>✦</span>}</td>
+                          <td style={{padding:"6px 10px",fontFamily:"'JetBrains Mono',monospace",color:"#9c9a92",fontSize:10.5}}>{o.id}</td>
+                          <td style={{padding:"6px 10px",fontWeight:600}}>{o.client}</td>
+                          <td style={{padding:"6px 10px"}}><EBadge etat={o.etat}/></td>
+                          <td style={{padding:"6px 10px",fontFamily:"'JetBrains Mono',monospace",fontSize:10.5}}>{fmt(o.dc)}</td>
+                          <td style={{padding:"6px 10px"}}><Badge type={o.alerte}/></td>
+                        </tr>
+                      );})}</tbody>
                     </table>
                   </div>
                 )}
-                {(!impResult.orders||impResult.orders.length===0)&&<div style={{textAlign:"center",padding:"2rem",color:"#6b6a64",fontSize:13}}>Aucune commande valide détectée.</div>}
+                {(!impResult.orders||impResult.orders.length===0)&&<div style={{textAlign:"center",padding:"2rem",color:"#6b6a64",fontSize:13}}>Aucune commande valide.</div>}
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}>
                   <button style={bs} onClick={()=>setImpStep("input")}>← Retour</button>
-                  {impResult.orders?.length>0&&<button style={bp} onClick={confirmImp}>Confirmer l'import ({(impResult.news?.length||0)+(impDupAction!=="skip"?(impResult.dupes?.length||0):0)})</button>}
+                  {impResult.orders?.length>0&&<button style={bp} onClick={confirmImp}>Confirmer ({(impResult.news?.length||0)+(impDupAction!=="skip"?(impResult.dupes?.length||0):0)})</button>}
                 </div>
               </div>
             )}
@@ -1111,12 +906,10 @@ function App() {
         </div>
       )}
 
-      {/* ── MODALS ── */}
       {showSuppliers&&<SupplierManager fournisseurs={fournisseurs} fournisseurColors={fournisseurColors} onAdd={addFournisseur} onRemove={removeFournisseur} onClose={()=>setShowSuppliers(false)} orders={orders}/>}
       {selectedOrder&&<DetailDrawer order={selectedOrder} onClose={()=>setSelectedOrder(null)} onUpdate={upd} fournisseurs={fournisseurs} fournisseurColors={fournisseurColors}/>}
       {showAlertMail&&<AlertEmailModal orders={activeOrders} onClose={()=>setShowAlertMail(false)} onSend={sendAlertEmail}/>}
 
-      {/* ── SETTINGS ── */}
       {showSet&&(
         <div style={{position:"fixed",inset:0,zIndex:40,animation:"fadeIn 0.12s"}} onClick={()=>setShowSet(false)}>
           <div style={{position:"absolute",top:0,right:0,bottom:0,width:380,background:"#fff",borderLeft:"1px solid rgba(0,0,0,0.06)",padding:"1.5rem",overflowY:"auto",boxShadow:"-12px 0 40px rgba(0,0,0,0.06)",animation:"slideRight 0.2s ease-out"}} onClick={e=>e.stopPropagation()}>
@@ -1124,53 +917,30 @@ function App() {
               <p style={{margin:0,fontWeight:700,fontSize:17}}>Paramètres</p>
               <button style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#9c9a92"}} onClick={()=>setShowSet(false)}>✕</button>
             </div>
-
-            {/* Destinataires fixes */}
-            <label style={lb}>Destinataires des alertes mail</label>
-            <div style={{background:"#EEEDFE",borderRadius:10,padding:"12px 14px",marginBottom:16,border:"1px solid rgba(60,52,137,0.15)"}}>
-              {ALERT_RECIPIENTS.map(e=>(
-                <div key={e} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
-                  <span style={{fontSize:12}}>✉</span>
-                  <span style={{fontSize:13,fontWeight:500,color:"#3C3489"}}>{e}</span>
-                </div>
-              ))}
-              <p style={{margin:"8px 0 0",fontSize:11,color:"#6b6a64"}}>Ces adresses sont fixes et configurées par l'administrateur.</p>
+            <div style={{background:"#EEEDFE",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
+              <p style={{margin:"0 0 4px",fontSize:10,fontWeight:700,textTransform:"uppercase",color:"#3C3489"}}>🔥 Firebase connecté</p>
+              <p style={{margin:0,fontSize:12,color:"#3C3489"}}>elite-mc-82ef3 · europe-west1</p>
+              <p style={{margin:"4px 0 0",fontSize:11,color:"#6b6a64"}}>Données sauvegardées automatiquement</p>
             </div>
-
+            <label style={lb}>Destinataires alertes mail</label>
+            <div style={{background:"#f6f5f1",borderRadius:8,padding:"10px 12px",marginBottom:16}}>
+              {ALERT_RECIPIENTS.map(e=><p key={e} style={{margin:"2px 0",fontSize:12,color:"#1a1a18"}}>✉ {e}</p>)}
+            </div>
             <div style={{height:1,background:"rgba(0,0,0,0.06)",margin:"16px 0"}}/>
-
             <label style={lb}>Délai standard (semaines)</label>
-            <input type="number" value={settings.dw} min={1} max={52} style={is} onChange={e=>setSettings(s=>({...s,dw:parseInt(e.target.value)||8}))}/>
+            <input type="number" value={settings.dw} min={1} max={52} style={is} onChange={e=>{const ns={...settings,dw:parseInt(e.target.value)||8};setSettings(ns);scheduleSave(undefined,undefined,ns);}}/>
             <p style={{fontSize:11,color:"#9c9a92",marginTop:4}}>Date limite = Date commande + {settings.dw} semaines</p>
-
             <div style={{height:1,background:"rgba(0,0,0,0.06)",margin:"20px 0"}}/>
-
             <p style={{...lb,marginBottom:10}}>Actions groupées</p>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <button style={{...bs,textAlign:"left"}} onClick={()=>{setOrders(p=>p.map(o=>o.alerte==="URGENT"?{...o,geste:GESTES[1]}:o));setShowSet(false);}}>Livraison offerte → toutes URGENT</button>
-              <button style={{...bs,textAlign:"left"}} onClick={()=>{setOrders(p=>p.map(o=>({...o,geste:""})));setShowSet(false);}}>Réinitialiser tous les gestes</button>
+              <button style={{...bs,textAlign:"left"}} onClick={()=>{const next=orders.map(o=>o.alerte==="URGENT"?{...o,geste:GESTES[1]}:o);setOrders(next);scheduleSave(next);setShowSet(false);}}>Livraison offerte → toutes URGENT</button>
+              <button style={{...bs,textAlign:"left"}} onClick={()=>{const next=orders.map(o=>({...o,geste:""}));setOrders(next);scheduleSave(next);setShowSet(false);}}>Réinitialiser tous les gestes</button>
             </div>
-
             <div style={{height:1,background:"rgba(0,0,0,0.06)",margin:"20px 0"}}/>
-
-            <p style={{...lb,marginBottom:10}}>Alertes mail</p>
-            <button style={{...bs,textAlign:"left",display:"flex",alignItems:"center",gap:6,width:"100%"}} onClick={()=>{setShowSet(false);setShowAlertMail(true);}}>
-              <span>✉</span> Envoyer les alertes de la semaine
-              {mailAlertCount>0&&<span style={{background:"#E24B4A",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700,marginLeft:"auto"}}>{mailAlertCount}</span>}
-            </button>
-            <p style={{fontSize:11,color:"#9c9a92",marginTop:4}}>Commandes arrivant à terme dans les 7 prochains jours</p>
-
-            <div style={{height:1,background:"rgba(0,0,0,0.06)",margin:"20px 0"}}/>
-
             <p style={{...lb,marginBottom:10,color:"#A32D2D"}}>Zone danger</p>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <button style={{...bs,textAlign:"left",color:"#BA7517",borderColor:"rgba(186,117,23,0.3)"}} onClick={()=>{if(confirm("Vider toutes les commandes actuelles ?")){setOrders([]);setShowSet(false);showBanner("success","Toutes les commandes ont été supprimées");}}}>🗑 Vider les données actuelles</button>
-              <button style={{...bs,textAlign:"left",color:"#A32D2D",borderColor:"rgba(163,45,45,0.3)"}} onClick={()=>{if(confirm("Réinitialiser toutes les données aux valeurs par défaut ?")){setOrders(INIT.map(resolve));setFournisseurs(DEFAULT_FOURNISSEURS);setShowSet(false);showBanner("success","Données réinitialisées");}}}>↻ Réinitialiser les données par défaut</button>
-            </div>
-
-            <div style={{marginTop:24,padding:14,background:"#f6f5f1",borderRadius:10,fontSize:12,color:"#9c9a92",lineHeight:1.6}}>
-              <p style={{fontWeight:600,color:"#6b6a64",marginBottom:4}}>ℹ Fonctionnement</p>
-              Les statuts se recalculent automatiquement selon la date du jour. Les données sont <strong>partagées entre tous les collaborateurs</strong> qui accèdent à cette page.
+              <button style={{...bs,textAlign:"left",color:"#BA7517",borderColor:"rgba(186,117,23,0.3)"}} onClick={()=>{if(confirm("Vider toutes les commandes ?")){setOrders([]);scheduleSave([]);setShowSet(false);showBanner("success","Commandes supprimées");}}}>🗑 Vider les données</button>
+              <button style={{...bs,textAlign:"left",color:"#A32D2D",borderColor:"rgba(163,45,45,0.3)"}} onClick={()=>{if(confirm("Réinitialiser aux données par défaut ?")){const next=INIT.map(resolve);setOrders(next);setFournisseurs(DEFAULT_FOURNISSEURS);scheduleSave(next,DEFAULT_FOURNISSEURS);setShowSet(false);showBanner("success","Données réinitialisées");}}}>↻ Réinitialiser</button>
             </div>
           </div>
         </div>
